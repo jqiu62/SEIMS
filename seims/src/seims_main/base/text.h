@@ -66,6 +66,11 @@ CONST_CHARS PARAM_CHANGE_VC =                       "VC";  ///< replace by a val
 CONST_CHARS PARAM_CHANGE_RC =                       "RC";  ///< multiply a ratio, which is diff from SWAT: * (1+ratio)
 CONST_CHARS PARAM_CHANGE_AC =                       "AC";  ///< add a value
 CONST_CHARS PARAM_CHANGE_NC =                       "NC";  ///< no change
+
+CONST_CHARS PARAM_CHANGEFUNC_LINEAR =               "LINEAR"; ///< linear function
+CONST_CHARS PARAM_CHANGEFUNC_EXP =                  "EXPONENTIAL"; ///< exponential function
+CONST_CHARS PARAM_CHANGEFUNC_SIG =                  "SIGMOID"; ///< sigmoid function
+
 CONST_CHARS PARAM_FLD_NAME =                        "NAME"; ///< unique name
 CONST_CHARS PARAM_FLD_DESC =                        "DESCRIPTION"; ///< description
 CONST_CHARS PARAM_FLD_UNIT =                        "UNIT"; ///< unit

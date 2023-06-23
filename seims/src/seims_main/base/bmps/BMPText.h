@@ -4,6 +4,8 @@
  * \author Liang-Jun Zhu
  * \date 2016-6-16
  */
+
+//2023-06-23 Add USECHANGEFUNCTION
 #ifndef SEIMS_BMP_TEXT_H
 #define SEIMS_BMP_TEXT_H
 

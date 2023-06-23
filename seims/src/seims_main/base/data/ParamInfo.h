@@ -13,6 +13,7 @@
 #define SEIMS_PARAMETER_INFO_H
 #include <vector>
 #include <algorithm>
+#include <cmath>
 
 #include "utils_math.h"
 #include "utils_string.h"
@@ -64,11 +65,20 @@ public:
      *                      as ParamInfo.Value, otherwise adjust the given value.
      * \return adjusted float value
      */
+
+    //! Add functions to calculate value change 2023-06-23
+    
     T GetAdjustedValue(T pre_value = NODATA_VALUE);
 
     //! Adjust value with indexed impact
     T GetAdjustedValueWithImpactIndexes(T pre_value, int curImpactIndex);
 
+    //! Adjust value with indexed impact - need to match function type 2023-06-23
+    T GetAdjustedValueWithFunction(T pre_value, int curImpactIndex);
+
+    //! Adjust value with index either from reading impact series or from calculating function
+    T GetAdjustedValueWithIndexCombined(T pre_value, int curImpactIndex);
+    
     //! Adjust 1D array
     void Adjust1DArray(int n, T* data);
 
@@ -78,6 +88,7 @@ public:
     //! Adjust 1D Raster on selected area
     int Adjust1DRaster(int n, T* data, const int* units, const vector<int>& selunits,
                        const int* lu, const vector<int>& sellu);
+
 
     //! Adjust 1D Raster on selected area, using impact index version
     int Adjust1DRasterWithImpactIndexes(int n, T* data, const int* units,
@@ -141,6 +152,10 @@ public:
     bool initialized;
     //! If the BMP effectiveness is variable, set the values of impacts 
     vector<T> ImpactSeries;
+ 
+    //! If using function, set required function parameters
+    string FuncType;
+    vector<T> FuncParams;
 };
 
 
@@ -155,7 +170,7 @@ ParamInfo<T>::ParamInfo() :
     Value(0), Change(""), Impact(0), Maximum(0), Minimum(0), IsInteger(false),
     DependPara(nullptr), ClimateType(""),
     IsConstant(false), IsOutput(false), OutputToOthers(false),
-    initialized(false), ImpactSeries() {
+    initialized(false), ImpactSeries(), FuncType(""), FuncParams() {
 }
 
 template <typename T>
@@ -166,7 +181,7 @@ ParamInfo<T>::ParamInfo(string& name, string& desc, string& unit, string& mid, T
     Value(value), Change(change), Impact(impact), Maximum(maximum), Minimum(minimum), IsInteger(isint),
     DependPara(nullptr), ClimateType(""),
     IsConstant(false), IsOutput(false), OutputToOthers(false),
-    initialized(false), ImpactSeries() {
+    initialized(false), ImpactSeries(), FuncType(""), FuncParams() {
 
 }
 
@@ -178,7 +193,7 @@ ParamInfo<T>::ParamInfo(string& name, string& basicname, string& desc, string& u
     Value(value), Change(""), Impact(0), Maximum(0), Minimum(0), IsInteger(false),
     DependPara(nullptr), ClimateType(climtype),
     IsConstant(false), IsOutput(false), OutputToOthers(false),
-    initialized(false), ImpactSeries() {
+    initialized(false), ImpactSeries(), FuncType(""), FuncParams() {
     
 }
 
@@ -191,7 +206,7 @@ ParamInfo<T>::ParamInfo(string& name, string& basicname, string& desc, string& u
     Value(0), Change(""), Impact(0), Maximum(0), Minimum(0), IsInteger(false),
     DependPara(nullptr), ClimateType(climtype),
     IsConstant(isconst), IsOutput(isoutput), OutputToOthers(false),
-    initialized(false), ImpactSeries() {
+    initialized(false), ImpactSeries(), FuncType(""), FuncParams() {
 
 }
 
@@ -218,6 +233,8 @@ ParamInfo<T>::ParamInfo(const ParamInfo<T>& another) {
     OutputToOthers = another.OutputToOthers;
     initialized = another.initialized;
     ImpactSeries = another.ImpactSeries;
+    FuncType = another.FuncType;
+    FuncParams = another.FuncParams;
 }
 
 template <typename T>
@@ -288,6 +305,65 @@ T ParamInfo<T>::GetAdjustedValueWithImpactIndexes(const T pre_value, const int c
 }
 
 template <typename T>
+T ParamInfo<T>::GetAdjustedValueWithFunction(const T pre_value, const int curImpactIndex) {
+    T res = pre_value;
+    if (FloatEqual(pre_value, NODATA_VALUE)) {
+        res = Value;
+    }
+    if (FloatEqual(res, NODATA_VALUE)) {
+        /// Do not change NoData value
+        return res;
+    }
+
+    T tmpImpact = curImpactIndex;
+
+    if (StringMatch(FuncType, "")) {
+        return res; //don't change if no function type provided
+    }
+    if (StringMatch(FuncType, PARAM_CHANGEFUNC_LINEAR)) {
+        tmpImpact = FuncParams[1] * curImpactIndex + FuncParams[0]; //basic form of y = ax+b
+    }
+    if (StringMatch(FuncType, PARAM_CHANGEFUNC_EXP)) {
+        tmpImpact = FuncParams[1] * exp(-FuncParams[2] * curImpactIndex) + FuncParams[0]; //basic form of y = a*e^(-kx)+b
+    }
+    if (StringMatch(FuncType, PARAM_CHANGEFUNC_SIG)) {
+        tmpImpact = FuncParams[0] /(1 + exp(-(curImpactIndex - FuncParams[1])/FuncParams[2])); //basic form of y = a/(1+e^(-x-b)/c)
+    }
+
+    if (StringMatch(Change, PARAM_CHANGE_RC) && !FloatEqual(tmpImpact, 1)) {
+        res *= tmpImpact;
+    }
+    else if (StringMatch(Change, PARAM_CHANGE_AC) && !FloatEqual(tmpImpact, 0)) {
+        res += tmpImpact;
+    }
+    else if (StringMatch(Change, PARAM_CHANGE_VC) && !FloatEqual(tmpImpact, NODATA_VALUE)) {
+        res = tmpImpact;
+    }
+    else if (StringMatch(Change, PARAM_CHANGE_NC)) { //don't change
+        return res;
+    }
+
+    if (!FloatEqual(Maximum, NODATA_VALUE) && res > Maximum) res = Maximum;
+    if (!FloatEqual(Minimum, NODATA_VALUE) && res < Minimum) res = Minimum;
+    return res;
+}
+
+template <typename T>
+T ParamInfo<T>::GetAdjustedValueWithIndexCombined(const T pre_value, const int curImpactIndex) {
+    T res = pre_value;
+    if (StringMatch(FuncType, "")) {
+        res = GetAdjustedValueWithImpactIndexes(pre_value, curImpactIndex);
+    }
+    else {
+        res = GetAdjustedValueWithFunction(pre_value, curImpactIndex);
+    }
+    return res;
+}
+
+
+
+
+template <typename T>
 void ParamInfo<T>::Adjust1DArray(const int n, T* data) {
 #pragma omp parallel for
     for (int i = 0; i < n; i++) {
@@ -350,7 +426,7 @@ int ParamInfo<T>::Adjust1DRasterWithImpactIndexes(const int n, T* data, const in
         if (it == impactIndexes.end()) {
             continue;
         }
-        data[i] = GetAdjustedValueWithImpactIndexes(data[i], it->second);
+        data[i] = GetAdjustedValueWithIndexCombined(data[i], it->second);
         count += 1;
     }
     return count;
@@ -415,11 +491,13 @@ int ParamInfo<T>::Adjust2DRasterWithImpactIndexes(const int n, const int lyrs, T
             continue;
         }
         for (int j = 0; j < lyrs; j++) {
-            data[i][j] = GetAdjustedValueWithImpactIndexes(data[i][j], it->second);
+            data[i][j] = GetAdjustedValueWithIndexCombined(data[i][j], it->second);
+    
         }
         count += 1;
     }
     return count;
 }
+
 
 #endif /* SEIMS_PARAMETER_INFO_H */

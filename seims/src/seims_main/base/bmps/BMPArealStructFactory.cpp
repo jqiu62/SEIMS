@@ -30,13 +30,30 @@ BMPArealStruct::BMPArealStruct(const bson_t*& bsonTable, bson_iter_t& iter): m_i
         vector<string> params_strs = SplitString(params_str, '-');
         for (auto it = params_strs.begin(); it != params_strs.end(); ++it) {
             vector<string> tmp_param_items = SplitString(*it, ':');
-            assert(tmp_param_items.size() == 4);
+            assert(tmp_param_items.size() == 5);
             ParamInfo<FLTPT>* p = new ParamInfo<FLTPT>();
             p->Name = tmp_param_items[0];
             p->Description = tmp_param_items[1];
             p->Change = tmp_param_items[2]; /// can be "RC", "AC", "NC", "VC", and "".
-            vector<string> impactsStrings = SplitString(tmp_param_items[3],'|');
+            p->FuncType = tmp_param_items[3]; /// type of function to use, "" if not 2023-06-23
+            vector<string> readStrings = SplitString(tmp_param_items[4], '|');
             FLTPT lastImpact = 1.;
+
+            if (StringMatch(p->FuncType, "")) { /// read as impact series
+                for (auto impactStrIt = readStrings.begin(); impactStrIt != readStrings.end(); ++impactStrIt) {
+                    FLTPT temp = ToDouble((*impactStrIt).c_str());
+                    p->ImpactSeries.push_back(temp);
+                }
+                p->Impact = p->ImpactSeries[0];//For compatibility with previous versions
+            }
+            else { /// read as function parameters
+                for (auto funcStrIt = readStrings.begin(); funcStrIt != readStrings.end(); ++funcStrIt) {
+                    FLTPT temp = ToDouble((*funcStrIt).c_str());
+                    p->FuncParams.push_back(temp);
+                }
+                p->Impact = p->FuncParams[0];//Initial value
+            }
+
 
             // use absolute value directly
             //for (auto impactStrIt = impactsStrings.begin(); impactStrIt != impactsStrings.end(); ++impactStrIt){
@@ -45,7 +62,7 @@ BMPArealStruct::BMPArealStruct(const bson_t*& bsonTable, bson_iter_t& iter): m_i
             //}
 
             // convert absolute impact value to relative impact value
-            for (auto impactStrIt = impactsStrings.begin(); impactStrIt != impactsStrings.end(); ++impactStrIt) {
+            /*for (auto impactStrIt = impactsStrings.begin(); impactStrIt != impactsStrings.end(); ++impactStrIt) {
                 if (impactStrIt == impactsStrings.begin()) {
                     lastImpact = ToDouble((*impactStrIt).c_str());
                     p->ImpactSeries.push_back(lastImpact);
@@ -55,8 +72,8 @@ BMPArealStruct::BMPArealStruct(const bson_t*& bsonTable, bson_iter_t& iter): m_i
                     p->ImpactSeries.push_back(temp/lastImpact);
                     lastImpact = temp;
                 }
-            }
-            p->Impact = p->ImpactSeries[0];//For compatibility with previous versions
+            }*/
+            // p->Impact = p->ImpactSeries[0];//For compatibility with previous versions
             cout << "BMPID: " << m_id << ", param_name: " << tmp_param_items[0] << ",value: " <<p->Impact<< endl;
 #ifdef HAS_VARIADIC_TEMPLATES
             if (!m_parameters.emplace(GetUpper(p->Name), p).second) {
