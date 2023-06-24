@@ -321,13 +321,13 @@ T ParamInfo<T>::GetAdjustedValueWithFunction(const T pre_value, const int curImp
         return res; //don't change if no function type provided
     }
     if (StringMatch(FuncType, PARAM_CHANGEFUNC_LINEAR)) {
-        tmpImpact = FuncParams[1] * curImpactIndex + FuncParams[0]; //basic form of y = ax+b
+        tmpImpact = FuncParams[0] + FuncParams[1] * curImpactIndex; //basic form of y = a1 + a2*x
     }
     if (StringMatch(FuncType, PARAM_CHANGEFUNC_EXP)) {
-        tmpImpact = FuncParams[1] * exp(-FuncParams[2] * curImpactIndex) + FuncParams[0]; //basic form of y = a*e^(-kx)+b
+        tmpImpact = FuncParams[0] + FuncParams[1] * (1.0 - exp(FuncParams[2] * curImpactIndex)); //basic form of y = a1 + a2(1-e^(a3*x))
     }
     if (StringMatch(FuncType, PARAM_CHANGEFUNC_SIG)) {
-        tmpImpact = FuncParams[0] /(1 + exp(-(curImpactIndex - FuncParams[1])/FuncParams[2])); //basic form of y = a/(1+e^(-x-b)/c)
+        tmpImpact = (FuncParams[0]-FuncParams[3]) / (1 + pow((curImpactIndex / FuncParams[1]), FuncParams[2])) + FuncParams[3]; //basic form of y = a4 + (a1-a4)/(1+(x/a2)^a3)
     }
 
     if (StringMatch(Change, PARAM_CHANGE_RC) && !FloatEqual(tmpImpact, 1)) {
