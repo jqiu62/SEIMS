@@ -423,27 +423,33 @@ def main(scenario_obj):
 if __name__ == "__main__":
     in_cf = get_config_parser()
     base_cfg = SAConfig(in_cf)  # type: SAConfig
-    sa_cfg = SASlpPosConfig(in_cf)
+    if base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[3]:  # SLPPOS
+        sa_cfg = SASlpPosConfig(in_cf)
+    elif base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[2]:  # CONNFIELD
+        sa_cfg = SAConnFieldConfig(in_cf)
+    else:  # Common spatial units, e.g., HRU and EXPLICITHRU
+        sa_cfg = SACommUnitConfig(in_cf)
     sa_cfg.construct_indexes_units_gene()
     sce = SUScenario(sa_cfg)
 
-    selectedScenarioFile = sa_cfg.model.model_dir+os.sep+sa_cfg.selected_scenario_file
-    with open(selectedScenarioFile) as fp:
-        for line in fp.readlines():
-            items = line.split(':')
-            if items[0] == 'Scenario ID':
-                sceid = int(items[1])
-            elif items[0] == 'Gene number':
-                geneNum = int(items[1])
-            elif items[0] == 'Gene values':
-                gvalues = [float(v.strip()) for v in items[1].split(',')]
-            else:
-                pass
+    #selectedScenarioFile = sa_cfg.model.model_dir+os.sep+sa_cfg.selected_scenario_file
+    #with open(selectedScenarioFile) as fp:
+    #    for line in fp.readlines():
+    #        items = line.split(':')
+    #        if items[0] == 'Scenario ID':
+    #            sceid = int(items[1])
+    #        elif items[0] == 'Gene number':
+    #            geneNum = int(items[1])
+    #        elif items[0] == 'Gene values':
+    #            gvalues = [float(v.strip()) for v in items[1].split(',')]
+    #        else:
+    #            pass
 
-    sce.set_unique_id(sceid)
-    sce.initialize(input_genes=gvalues)
+    gvalues = [0, 2004, 0, 0, 0, 0, 0, 1001, 2002, 0, 0, 0, 0, 0, 0, 0, 0, 1002, 0, 0, 1001, 0, 2003, 0, 0, 0, 2002, 0, 0, 0, 0, 0, 0, 0, 2004, 0, 0, 0, 0, 0, 1005, 2001, 0, 1003, 1004, 0, 0, 2001, 0, 2005, 2002, 0, 0, 0, 1004, 0, 1001, 0, 0, 0, 1003, 2005, 2004, 0, 1001, 0, 2001, 1003, 0, 0, 0, 0]
+    sce.set_unique_id()
+    sce.initialize_with_bmps_order(gvalues)
     print('The ID of the selected scenario that provided spatial configuration: ' + str(sce.ID))
-    print('The genes of the selected scenario: ' + str(gvalues))
+    print('The genes of the selected scenario: ' + str(sce.gene_values))
 
     scoop_log('### START TO SCENARIOS OPTIMIZING ###')
     startT = time.time()

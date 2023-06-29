@@ -6,8 +6,10 @@
     - 16-10-29  - hr - initial implementation.
     - 17-08-18  - lj - redesign and rewrite.
     - 18-02-09  - lj - compatible with Python3.
+    - 23-06-29  - create gene list
 """
 from __future__ import absolute_import, division, unicode_literals
+from pickle import NONE
 from future.utils import viewitems
 
 import array
@@ -54,7 +56,13 @@ class SUScenario(Scenario):
         self.gene_num = cf.genes_num  # type: int
         self.gene_values = [0] * self.gene_num  # type: List[int, float] # 0 means no BMP
 
-        self.bmps_params = dict()  # type: Dict[int, Any] # {bmp_id: {...}}
+        # use gene list to store 1) bmp subscenario, 2) implementation year, 3) whether or not to maintain for specific years 
+        if self.cfg.change_times > 0:
+            self.change_times = self.cfg.change_times # make sure self.change_times is always positive
+            self.gene_list = [[0, 0, [0] * self.change_times] for _ in range(self.gene_num)]
+        self.base_amount = self.eval_info['BASE_ENV'] # for calculating environment-related
+
+        self.bmps_params = dict()  # type: Dict[int, Any] # {bmp_subscenario id: {...}}
         self.suit_bmps = dict()  # type: Dict[AnyStr, Dict[int, List[int]]] # {type:{id: [bmp_ids]}}
         self.bmps_grade = dict()  # type: Dict[int, int] # {slppos_id: effectiveness_grade}
 
@@ -178,42 +186,79 @@ class SUScenario(Scenario):
                                ' class, especially the overwritten rule_based_config and'
                                ' random_based_config!')
 
-    def initialize_with_bmps_order(self, opt_genes, input_genes=False):
-        # type: (List, Optional[List]) -> List
-        """Initialize a scenario with bmps order.
-
+    # initialize gene list
+    def initialize_gene_list(self, input_gene_list = None):
+        # type: (Optional[List]) -> List
+        """Initialize a scenario as a gene list.
         Returns:
-            A list contains BMPs identifier of each gene location.
+            A list contains BMPs identifier, implementation year, and maintenance plans of each gene location.
         """
+        # Create configuration rate for each location randomly, 0.4 ~ 0.6
+        cr = random.randint(40, 60) / 100.
 
-        def generate_gene_values(obj, genes):
-            invests = numpy.array(obj.cfg.investment_each_period, dtype=float)
-            pro_dist = invests / numpy.sum(invests)
-            rand_range = range(1, obj.cfg.change_times + 1)
-            # gene index and BMP type
-            for idx, gene in enumerate(genes):
-                if gene == 0:
-                    obj.gene_values[idx] = 0
-                    continue
-                if gene>1000:
-                    gene, _ = divmod(int(gene), 1000)
-                    # rand_bit = random.randint(1, obj.cfg.change_times)
-                    rand_bit = numpy.random.choice(rand_range, p=pro_dist)
-                    obj.gene_values[idx] = int(gene) * 1000 + rand_bit
-                else:
-                    rand_bit = numpy.random.choice(rand_range, p=pro_dist)
-                    obj.gene_values[idx] = int(gene) * 1000 + rand_bit
+        if input_gene_list is not None:  # Using the input genes
+            if self.check_valid_gene_list(input_gene_list):
+                self.gene_list = input_gene_list[:]
+                self.generate_gene_values_from_gene_list()
+            if all(len(sub) == 1 for sub in input_gene_list):
+                self.initialize(input_gene_list) # if input as gene_values, first initialize gene_values then generate gene list
+                self.generate_gene_list_from_gene_values()
+            return self.gene_list
 
-        if input_genes:
-            self.gene_values = opt_genes
         else:
-            generate_gene_values(self, opt_genes)
-            satisfied, _ = self.satisfy_investment_constraints()
-            while not satisfied:
-                generate_gene_values(self, opt_genes)
-                satisfied, _ = self.satisfy_investment_constraints()
+            if self.rule_mtd == BMPS_CFG_METHODS[0]:
+                self.random_based_config_gene_list(cr)
+            else:
+                self.rule_based_config_gene_list(self.rule_mtd, cr)
 
-        return self.gene_values
+        if len(self.gene_list) == self.gene_num > 0:
+            return self.gene_list
+        else:
+            raise RuntimeError('Initialize Scenario as gene list failed, please check the inherited scenario'
+                               ' class, especially the overwritten rule_based_config_gene_list and'
+                               ' random_based_config_gene_list!')
+
+    # check if the input gene list is valid for initializing
+    def check_valid_gene_list(self, input_gene_list):
+        valid = False
+        if len(input_gene_list) == self.gene_num and all(len(sub) ==3 for sub in input_gene_list):
+            for sub in input_gene_list:
+                if sub[0] != 0:
+                    valid = isinstance(sub[1], int) and 1 <= sub[1] <= 5
+        return valid
+
+    # generate gene list from gene values, randomly assign implementation year and maintenance if bmp configured
+    def generate_gene_list_from_gene_values(self):
+        for i in range (self.gene_num):
+           self.gene_list[i][0] = self.gene_values[i]
+           # Must specify the implementation year if bmp has been configured. 
+           # Randomly assign maintenance after the implementation year.
+           if self.gene_list[i][0] != 0:
+               self.gene_list[i][1] = random.randint(1, self.change_times)
+               if self.gene_list[i][1] != self.change_times:
+                   for ii in range(self.gene_list[i][1], self.change_times):
+                       self.gene_list[i][2][ii] = random.randint(0, 1)
+
+    # generate gene values from gene list, apply when taking input gene list directly from outside
+    def generate_gene_values_from_gene_list(self):
+        for i in range (self.gene_num):
+           self.gene_values[i] = self.gene_list[i][0]
+
+    def random_based_config(self, conf_rate=0.5):
+        # type: (float) -> None
+        """Config BMPs on each spatial unit randomly."""
+        pot_bmps = self.cfg.bmps_subids[:]
+        for uid, i in viewitems(self.cfg.unit_to_gene):
+            if random.random() >= conf_rate:
+                continue
+            self.gene_values[i] = pot_bmps[random.randint(0, len(pot_bmps) - 1)]
+
+    def random_based_config_gene_list(self, conf_rate = 0.5):
+        # generate gene list randomly
+        # first generate gene values then modify gene list
+        self.random_based_config(conf_rate)
+        self.generate_gene_list_from_gene_values()
+
 
     def rule_based_config(self, method, conf_rate=0.5):
         # type: (float, AnyStr) -> None
@@ -341,14 +386,9 @@ class SUScenario(Scenario):
                 # select one randomly
                 self.gene_values[gene_idx] = cur_bmps[random.randint(0, len(cur_bmps) - 1)]
 
-    def random_based_config(self, conf_rate=0.5):
-        # type: (float) -> None
-        """Config BMPs on each spatial unit randomly."""
-        pot_bmps = self.cfg.bmps_subids[:]
-        for uid, i in viewitems(self.cfg.unit_to_gene):
-            if random.random() >= conf_rate:
-                continue
-            self.gene_values[i] = pot_bmps[random.randint(0, len(pot_bmps) - 1)]
+    def rule_based_config_gene_list(self, method, conf_rate =0.5):
+        self.rule_based_config(method, conf_rate)
+        self.generate_gene_list_from_gene_values()
 
     def boundary_adjustment(self):
         """
@@ -442,22 +482,22 @@ class SUScenario(Scenario):
                 self.bmp_items[sce_item_count] = curd
                 sce_item_count += 1
 
-    def decoding_with_bmps_order(self):
-        """Decode gene values to Scenario item, i.e., `self.bmp_items`."""
+    def decoding_from_gene_list(self):
+        """Decode gene list to Scenario item, i.e., `self.bmp_items`."""
         if self.ID < 0:
             self.set_unique_id()
         if self.bmp_items:
             self.bmp_items.clear()
-        bmp_units = dict()  # type: Dict[int, List[str]] # {BMPs_ID: [units list]}
+        bmp_units = dict()  # type: Dict[int, List[str]] # {subscenario ID: [unit|year|mt1:mt2, another]}
         for unit_id, gene_idx in viewitems(self.cfg.unit_to_gene):
-            gene_v = self.gene_values[gene_idx]
-            if gene_v == 0:
+            gene_bmp = self.gene_list[gene_idx][0]
+            if gene_bmp == 0:
                 continue
-            # subscenario, year = [int(x) for x in str(int(gene_v))]
-            subscenario, year = divmod(int(gene_v), 1000)
+            # subscenario, year, maintenance
+            subscenario, year, mt = self.gene_list[gene_idx]
             if subscenario not in bmp_units:
                 bmp_units[subscenario] = list()
-            bmp_units[subscenario].append('{0}|{1}'.format(unit_id, year))
+            bmp_units[subscenario].append('{0}|{1}|{2}'.format(unit_id, year, ':'.join(map(str, mt))))
 
         sce_item_count = 0
         for k, v in viewitems(bmp_units):
@@ -485,11 +525,38 @@ class SUScenario(Scenario):
                 self.bmp_items[sce_item_count] = curd
                 sce_item_count += 1
 
+
     def import_from_mongodb(self, sid):
         pass
 
     def import_from_txt(self, sid):
         pass
+
+    def export_scenario_to_gtiff(self, outpath=None):
+        # type: (Optional[str]) -> None
+        """Export scenario to GTiff.
+
+        Read Raster from MongoDB should be extracted to pygeoc. -- Done using mask_rasterio!
+        By ZhuLJ, 2023-03-25
+        """
+        if not self.export_sce_tif:
+            return
+        dist = self.bmps_info[self.cfg.bmpid]['DISTRIBUTION']
+        dist_list = StringClass.split_string(dist, '|')
+        if len(dist_list) >= 2 and dist_list[0] == 'RASTER':
+            dist_name = '0_' + dist_list[1]  # prefix 0_ means the whole basin
+            v_dict = dict()
+            for unitidx, geneidx in viewitems(self.cfg.unit_to_gene):
+                v_dict[unitidx] = self.gene_values[geneidx]
+            if outpath is None:
+                outpath = self.scenario_dir + os.path.sep + 'Scenario_%d.tif' % self.ID
+            unit2bmpsstr = ','.join('%s:%s' % (repr(k), repr(v)) for k, v in v_dict.items())
+            # print(unit2bmpsstr)
+            mongoargs = [self.cfg.model.host, self.cfg.model.port,
+                         self.cfg.model.db_name, 'SPATIAL']
+            mask_rasterio(self.cfg.model.bin_dir,
+                          [[dist_name, outpath, 0, -9999, 'INT32', unit2bmpsstr]],
+                          mongoargs=mongoargs, maskfile='0_SUBBASIN', include_nodata=False)
 
     def calculate_economy(self):
         """Calculate economic benefit by simple cost-benefit model, see Qin et al. (2018)."""
@@ -520,18 +587,14 @@ class SUScenario(Scenario):
         # print('economy: capex {}, income {}, opex {}'.format(capex, income, opex))
         return self.economy
 
-    def calculate_economy_bmps_order(self, costs, maintains, incomes):
+    def calculate_economy_by_period(self, costs, maintains, incomes):
         """Calculate economic benefit by simple cost-benefit model, see Qin et al. (2018)."""
         self.net_costs_per_period = (costs + maintains - incomes).tolist()
         self.costs_per_period = (costs + maintains).tolist()
         self.incomes_per_period = incomes.tolist()
-
-        # use net present value
-        net_present_value = 0.
-        for index, net_cost in enumerate(self.net_costs_per_period):
-            net_present_value += net_cost / numpy.power(1.0 + self.cfg.discount_rate, index + 1)
-        self.economy = net_present_value
-        print('economy:{}, capex {}, maintain {}, income {}'.format(self.economy, costs, maintains, incomes))
+        
+        self.economy = sum(self.net_costs_per_period)
+        # print('economy:{}, capex {}, maintain {}, income {}'.format(self.economy, costs, maintains, incomes))
         return self.economy
 
     def calculate_environment(self):
@@ -557,7 +620,7 @@ class SUScenario(Scenario):
             # self.model.UnsetMongoClient()
             return
 
-        base_amount = self.eval_info['BASE_ENV']
+        base_amount = self.base_amount
         if StringClass.string_match(rfile.split('.')[-1], 'tif'):  # Raster data
             rr = RasterUtilClass.read_raster(rfile)
             sed_sum = rr.get_sum() / self.eval_timerange  # unit: year
@@ -581,10 +644,11 @@ class SUScenario(Scenario):
                       'SUM(%s): %s' % (self.ID, rfile, repr(sed_sum)))
                 self.environment = self.worst_env
 
-    def calculate_environment_bmps_order(self):
+    def calculate_environment_by_period(self):
         """Calculate environment benefit based on the output and base values predefined in
                 configuration file.
                 """
+        # raster file names need reformat!
         if not self.modelrun:  # no evaluate done
             self.economy = self.worst_econ
             self.environment = self.worst_env
@@ -604,7 +668,7 @@ class SUScenario(Scenario):
             # self.model.UnsetMongoClient()
             return
 
-        base_amount = self.eval_info['BASE_ENV']
+        base_amount = self.base_amount
         sed_per_period = list()
         if StringClass.string_match(rfile.split('.')[-1], 'tif'):  # Raster data
             # sum of 2013-2017
@@ -627,48 +691,23 @@ class SUScenario(Scenario):
             self.sed_sum = sed_sum
             self.sed_per_period = sed_per_period
         else:
-            # reduction rate of soil erosion (in percent)
-            self.environment = (base_amount - sed_sum) * 100 / base_amount
+            # reduction rate of soil erosion
+            self.environment = (base_amount - sed_sum) / base_amount
             self.sed_sum = sed_sum
             self.sed_per_period = sed_per_period
             # print exception values
-            if self.environment > 100. or self.environment is numpy.nan:
+            if self.environment > 1. or self.environment < 0. or self.environment is numpy.nan:
                 print('Exception Information: Scenario ID: %d, SUM(%s): %s, per period: %s'
                       % (self.ID, rfile, repr(sed_sum), sed_per_period))
                 self.environment = self.worst_env
-
-    def export_scenario_to_gtiff(self, outpath=None):
-        # type: (Optional[str]) -> None
-        """Export scenario to GTiff.
-
-        Read Raster from MongoDB should be extracted to pygeoc. -- Done using mask_rasterio!
-        By ZhuLJ, 2023-03-25
-        """
-        if not self.export_sce_tif:
-            return
-        dist = self.bmps_info[self.cfg.bmpid]['DISTRIBUTION']
-        dist_list = StringClass.split_string(dist, '|')
-        if len(dist_list) >= 2 and dist_list[0] == 'RASTER':
-            dist_name = '0_' + dist_list[1]  # prefix 0_ means the whole basin
-            v_dict = dict()
-            for unitidx, geneidx in viewitems(self.cfg.unit_to_gene):
-                v_dict[unitidx] = self.gene_values[geneidx]
-            if outpath is None:
-                outpath = self.scenario_dir + os.path.sep + 'Scenario_%d.tif' % self.ID
-            unit2bmpsstr = ','.join('%s:%s' % (repr(k), repr(v)) for k, v in v_dict.items())
-            # print(unit2bmpsstr)
-            mongoargs = [self.cfg.model.host, self.cfg.model.port,
-                         self.cfg.model.db_name, 'SPATIAL']
-            mask_rasterio(self.cfg.model.bin_dir,
-                          [[dist_name, outpath, 0, -9999, 'INT32', unit2bmpsstr]],
-                          mongoargs=mongoargs, maskfile='0_SUBBASIN', include_nodata=False)
+                    
 
     def calculate_profits_by_period(self):
-        bmp_costs_by_period = [0.] * self.cfg.change_times
-        bmp_maintain_by_period = [0.] * self.cfg.change_times
-        bmp_income_by_period = [0.] * self.cfg.change_times
+        bmp_costs_by_period = [0.] * self.change_times
+        bmp_maintain_by_period = [0.] * self.change_times
+        bmp_income_by_period = [0.] * self.change_times
         for unit_id, gene_idx in viewitems(self.cfg.unit_to_gene):
-            gene_v = self.gene_values[gene_idx]
+            gene_v = self.gene_list[gene_idx][0]
             if gene_v == 0:
                 continue
             unit_lu = dict()
@@ -676,44 +715,56 @@ class SUScenario(Scenario):
                 if unit_id in spunits:
                     unit_lu = spunits[unit_id]['landuse']
                     break
-            subscenario, impl_period = divmod(int(gene_v), 1000)
+            subscenario, year, mt = self.gene_list[gene_idx]
             bmpparam = self.bmps_params[subscenario]
             for luid, luarea in unit_lu.items():
                 if luid in bmpparam['LANDUSE'] or bmpparam['LANDUSE'] is None:
-                    capex = luarea * bmpparam['CAPEX']
                     opex = bmpparam['OPEX']
                     income = bmpparam['INCOME']
-                    bmp_costs_by_period[impl_period - 1] += capex
-                    # every period has income after impl
-                    for prd in range(impl_period, self.cfg.change_times + 1):  # closed interval
-                        bmp_maintain_by_period[prd - 1] += luarea * opex
-                        bmp_income_by_period[prd - 1] += luarea * income[
-                            prd - impl_period]  # each year has different benefit
+                    bmp_costs_by_period[year - 1] += luarea * bmpparam['CAPEX']
+                    # every period has income after implementation
+                    for prd in range(year - 1, self.cfg.change_times):  # closed interval
+                        if mt[prd] == 1: # if maintenance has been adopted for the year, maintenance temporarily raises income
+                            bmp_maintain_by_period[prd] += luarea * opex
+                            bmp_income_by_period[prd] += luarea * income[prd - year + 1] * bmpparam['RAISE_BY_MT']
+                        else:
+                            bmp_income_by_period[prd] += luarea * income[prd - year + 1]  # each year has different benefit
         return bmp_costs_by_period, bmp_maintain_by_period, bmp_income_by_period
 
-    def satisfy_investment_constraints(self):
-        # compute economy
+    def count_maintain_by_period(self):
+        # count maintenance for each period
+        mt_by_period = [0] * self.change_times
+        for t in range(self.change_times):
+            for i in self.gene_list:
+                if self.gene_list[i][2][t] == 1:
+                    mt_by_period[t] += 1
+        return mt_by_period
+
+    def satisfy_investment_plan(self):
+        # compute cost per period and compare with investment plans
         bmp_costs_by_period, bmp_maintain_by_period, bmp_income_by_period = self.calculate_profits_by_period()
-        invest = numpy.array(self.cfg.investment_each_period)
+        invest_limit = numpy.array(self.cfg.investment_each_period)
         costs = numpy.array(bmp_costs_by_period)
         maintain = numpy.array(bmp_maintain_by_period)
         income = numpy.array(bmp_income_by_period)
-        diff = invest - (costs + maintain - income)
-        print('investment constraints: ', invest)
+        remain = invest_limit - (costs + maintain - income)
+        print('investment limits: ', invest_limit)
         print('costs: ', costs)
         print('maintain: ', maintain)
         print('income: ', income)
-        print('diff: ', diff)
+        print('remain: ', remain)
 
         # not consider investment quota
         if not self.cfg.enable_investment_quota:
+            print("Not considering investment limits.")
             return True, [costs, maintain, income]
         else:
             if self.cfg.investment_each_period is None:
+                print("Investment plans are not provided!")
                 return False, [None, None, None]
 
             # satisfy economic constraint
-            if numpy.all(numpy.greater(invest, costs + maintain - income)):
+            if numpy.all(numpy.greater(invest_limit, costs + maintain - income)):
                 self.net_costs_per_period = (costs + maintain - income).tolist()
                 self.costs_per_period = (costs + maintain).tolist()
                 self.incomes_per_period = income.tolist()
@@ -721,9 +772,11 @@ class SUScenario(Scenario):
             else:
                 return False, [None, None, None]
 
-    def statistics_by_period_bmp(self):
+
+    def statistics_by_period(self):
+    # summary of each year, sum of each bmp for each year
         periods = list()
-        for _ in range(self.cfg.change_times):
+        for _ in range(self.change_times):
             bmps = dict()
             for bmpparam in self.bmps_params.values():
                 temp_dict = dict()
@@ -735,7 +788,7 @@ class SUScenario(Scenario):
             periods.append({'SUMMARY': {}, 'BMPS': bmps})
 
         for unit_id, gene_idx in viewitems(self.cfg.unit_to_gene):
-            gene_v = self.gene_values[gene_idx]
+            gene_v = self.gene_list[gene_idx][0]
             if gene_v == 0:
                 continue
             unit_lu = dict()
@@ -743,21 +796,20 @@ class SUScenario(Scenario):
                 if unit_id in spunits:
                     unit_lu = spunits[unit_id]['landuse']
                     break
-            subscenario, impl_period = divmod(int(gene_v), 1000)
+            subscenario, year, mt = self.gene_list[gene_idx]
             bmpparam = self.bmps_params[subscenario]
             for luid, luarea in unit_lu.items():
                 if luid in bmpparam['LANDUSE'] or bmpparam['LANDUSE'] is None:
                     bmpname = bmpparam['NAME']
-                    # every period has opex,income after impl, only one capex
-                    capex = luarea * bmpparam['CAPEX']
-                    periods[impl_period - 1]['BMPS'][bmpname]['CAPEX'] += capex
-                    periods[impl_period - 1]['BMPS'][bmpname]['AREA'] += luarea
-                    for prd in range(impl_period, self.cfg.change_times + 1):  # closed interval
-                        bmp_year_index = prd - impl_period
-                        opex = luarea * bmpparam['OPEX']  # only 1 number
-                        income = luarea * bmpparam['INCOME'][bmp_year_index]  # sequence numbers
-                        periods[prd - 1]['BMPS'][bmpname]['OPEX'] += opex
-                        periods[prd - 1]['BMPS'][bmpname]['INCOME'] += income
+                    periods[year - 1]['BMPS'][bmpname]['CAPEX'] += luarea * bmpparam['CAPEX']
+                    periods[year - 1]['BMPS'][bmpname]['AREA'] += luarea
+                    for prd in range(year - 1, self.cfg.change_times):  # closed interval
+                        implemented_index = prd - year + 1
+                        if mt[prd] == 1:
+                            periods[prd]['BMPS'][bmpname]['OPEX'] += luarea * bmpparam['OPEX']
+                            periods[prd]['BMPS'][bmpname]['INCOME'] += luarea * bmpparam['INCOME'][implemented_index] * bmpparam['RAISE_BY_MT']
+                        else:
+                            periods[prd]['BMPS'][bmpname]['INCOME'] += luarea * bmpparam['INCOME'][implemented_index]
 
         for period in periods:
             total_capex = 0.
@@ -778,18 +830,17 @@ class SUScenario(Scenario):
         return periods
 
     def statistics_by_bmp(self):
-        bmps = dict()
+        bmps = dict() #{name:{area:, income:}}
         for bmpparam in self.bmps_params.values():
             temp_dict = dict()
             temp_dict['AREA'] = 0.
             temp_dict['CAPEX'] = 0.
             temp_dict['OPEX'] = 0.
             temp_dict['INCOME'] = 0.
-            bmps[bmpparam['NAME']] = temp_dict
-        stats = dict({'SUMMARY': {}, 'BMPS': bmps})
+            bmps[bmpparam['NAME']] = temp_dict        
 
         for unit_id, gene_idx in viewitems(self.cfg.unit_to_gene):
-            gene_v = self.gene_values[gene_idx]
+            gene_v = self.gene_list[gene_idx][0]
             if gene_v == 0:
                 continue
             unit_lu = dict()
@@ -797,22 +848,21 @@ class SUScenario(Scenario):
                 if unit_id in spunits:
                     unit_lu = spunits[unit_id]['landuse']
                     break
-            subscenario, impl_period = divmod(int(gene_v), 1000)  # impl_period == 1 in this function
+            subscenario, year, mt = self.gene_list[gene_idx]
             bmpparam = self.bmps_params[subscenario]
             for luid, luarea in unit_lu.items():
                 if luid in bmpparam['LANDUSE'] or bmpparam['LANDUSE'] is None:
                     bmpname = bmpparam['NAME']
-                    # every period has opex,income after impl, only one capex
-                    capex = luarea * bmpparam['CAPEX']
-                    stats['BMPS'][bmpname]['CAPEX'] += capex
-                    stats['BMPS'][bmpname]['AREA'] += luarea
-                    for prd in range(impl_period, self.cfg.change_times + 1):  # closed interval
-                        bmp_year_index = prd - impl_period
-                        opex = luarea * bmpparam['OPEX']  # only 1 number
-                        income = luarea * bmpparam['INCOME'][bmp_year_index]  # sequence numbers
-                        stats['BMPS'][bmpname]['OPEX'] += opex
-                        stats['BMPS'][bmpname]['INCOME'] += income
-        return stats
+                    bmps[bmpname]['CAPEX'] += luarea * bmpparam['CAPEX']
+                    bmps[bmpname]['AREA'] += luarea
+                    for prd in range(year - 1, self.cfg.change_times):  # closed interval
+                        if mt[prd] == 1:
+                            bmps[bmpname]['OPEX'] = luarea * bmpparam['OPEX']
+                            bmps[bmpname]['INCOME'] += luarea * bmpparam['INCOME'][prd - year + 1] * bmpparam['RAISE_BY_MT']
+                        else:
+                            bmps[bmpname]['INCOME'] += luarea * bmpparam['INCOME'][prd - year + 1]
+                        
+        return bmps
 
 
 def select_potential_bmps(unitid,  # type: int
@@ -941,11 +991,11 @@ def initialize_scenario(cf, input_genes=None):
     return sce.initialize(input_genes=input_genes)
 
 
-def initialize_scenario_with_bmps_order(cf, opt_genes, input_genes=False):
+def initialize_scenario_gene_list(cf, input_genes):
     # type: (Union[SASlpPosConfig, SAConnFieldConfig, SACommUnitConfig], Optional[List]) -> List[int]
     """Initialize gene values"""
     sce = SUScenario(cf)
-    return sce.initialize_with_bmps_order(opt_genes, input_genes=input_genes)
+    return sce.initialize_gene_list(input_genes=input_genes)
 
 
 def scenario_effectiveness(cf, ind):

@@ -100,7 +100,7 @@ def run_base_scenario(sceobj):
     for i in list(range(len(base_ind))):
         base_ind[i] = 0
     base_ind = scenario_effectiveness(sceobj.cfg, base_ind)
-    sceobj.cfg.eval_info['BASE_ENV'] = base_ind.fitness.values[1]
+    sceobj.base_amount = base_ind.fitness.values[1]
 
 
 def main(sceobj):
