@@ -56,11 +56,11 @@ class SUScenario(Scenario):
         self.gene_num = cf.genes_num  # type: int
         self.gene_values = [0] * self.gene_num  # type: List[int, float] # 0 means no BMP
 
-        # use gene list to store 1) bmp subscenario, 2) implementation year, 3) whether or not to maintain for specific years 
+        # use gene list to store 1) bmp subscenario, 2) implementation year, 3) whether or not to maintain for the years after implementation
         if self.cfg.change_times > 0:
             self.change_times = self.cfg.change_times # make sure self.change_times is always positive
             self.gene_list = [[0, 0, [0] * self.change_times] for _ in range(self.gene_num)]
-        self.base_amount = self.eval_info['BASE_ENV'] # for calculating environment-related
+        self.base_amount = self.eval_info['BASE_ENV'] # for calculating environment-related, update in nsga2 base run
 
         self.bmps_params = dict()  # type: Dict[int, Any] # {bmp_subscenario id: {...}}
         self.suit_bmps = dict()  # type: Dict[AnyStr, Dict[int, List[int]]] # {type:{id: [bmp_ids]}}
@@ -187,6 +187,7 @@ class SUScenario(Scenario):
                                ' random_based_config!')
 
     # initialize gene list
+    # once this function is called, gene_list and the coupled gene_values will be both generated
     def initialize_gene_list(self, input_gene_list = None):
         # type: (Optional[List]) -> List
         """Initialize a scenario as a gene list.
@@ -211,7 +212,7 @@ class SUScenario(Scenario):
             else:
                 self.rule_based_config_gene_list(self.rule_mtd, cr)
 
-        if len(self.gene_list) == self.gene_num > 0:
+        if len(self.gene_list) == len(self.gene_values) == self.gene_num > 0:
             return self.gene_list
         else:
             raise RuntimeError('Initialize Scenario as gene list failed, please check the inherited scenario'
@@ -224,7 +225,7 @@ class SUScenario(Scenario):
         if len(input_gene_list) == self.gene_num and all(len(sub) ==3 for sub in input_gene_list):
             for sub in input_gene_list:
                 if sub[0] != 0:
-                    valid = isinstance(sub[1], int) and 1 <= sub[1] <= 5
+                    valid = isinstance(sub[1], int) and 1 <= sub[1] <= self.change_times
         return valid
 
     # generate gene list from gene values, randomly assign implementation year and maintenance if bmp configured
@@ -649,6 +650,7 @@ class SUScenario(Scenario):
                 configuration file.
                 """
         # raster file names need reformat!
+        # comment out sediment raster files by year, since error occurred. 06-29-2023
         if not self.modelrun:  # no evaluate done
             self.economy = self.worst_econ
             self.environment = self.worst_env
@@ -674,11 +676,11 @@ class SUScenario(Scenario):
             # sum of 2013-2017
             rr = RasterUtilClass.read_raster(rfile)
             sed_sum = rr.get_sum() / self.cfg.implementation_period  # Annual average of sediment 13-17
-            for i in range(self.cfg.change_times):
-                # 2013-2017
-                filename = self.modelout_dir + os.path.sep + str(i + 3) + '_' + self.eval_info['ENVEVAL']
-                sed_per_period.append(RasterUtilClass.read_raster(filename).get_sum())
-            # sed_sum = sed_per_period[-1]  # 2017 sed sum
+            #for i in range(self.cfg.change_times):
+            #    # 2013-2017
+            #    filename = self.modelout_dir + os.path.sep + str(i + 3) + '_' + self.eval_info['ENVEVAL']
+            #    sed_per_period.append(RasterUtilClass.read_raster(filename).get_sum())
+            ## sed_sum = sed_per_period[-1]  # 2017 sed sum
         elif StringClass.string_match(rfile.split('.')[-1], 'txt'):  # Time series data
             sed_sum = read_simulation_from_txt(self.modelout_dir,
                                                ['SED'], self.model.OutletID,
@@ -738,6 +740,8 @@ class SUScenario(Scenario):
             for i in self.gene_list:
                 if self.gene_list[i][2][t] == 1:
                     mt_by_period[t] += 1
+        self.maintain_per_period = mt_by_period
+        self.maintain_times = sum(mt_by_period)
         return mt_by_period
 
     def satisfy_investment_plan(self):
@@ -772,6 +776,24 @@ class SUScenario(Scenario):
             else:
                 return False, [None, None, None]
 
+    def adjust_year_for_invest(self):
+        # try to adjust implementation years to satisfy investment limits
+        satisfied, _ = self.satisfy_investment_plan()
+        count = 0 # try in limited attempts
+        while not satisfied: # be careful with dead loop
+            invest = numpy.array(self.cfg.investment_each_period, dtype=float)
+            prob_dist = invest / numpy.sum(invest)
+            # do not change configuration type
+            # assume the percent of implementation in each year correlates with investment distribution
+            for idx, gene in enumerate(self.gene_list):
+                rand_bit = numpy.random.choice(range(1, self.change_times + 1), p=prob_dist)
+                gene[1] = rand_bit
+                gene[2] = [0] * self.change_times
+            satisfied, _ = self.satisfy_investment_plan()
+            count += 1
+            if count > 20:
+                print("No configuration can satisfy the investment plan. Consider adjust the numbers.")
+                break
 
     def statistics_by_period(self):
     # summary of each year, sum of each bmp for each year
@@ -991,15 +1013,15 @@ def initialize_scenario(cf, input_genes=None):
     return sce.initialize(input_genes=input_genes)
 
 
-def initialize_scenario_gene_list(cf, input_genes):
-    # type: (Union[SASlpPosConfig, SAConnFieldConfig, SACommUnitConfig], Optional[List]) -> List[int]
-    """Initialize gene values"""
+def initialize_scenario_gene_list(cf, input_genes=None):
+    # type: (Union[SASlpPosConfig, SAConnFieldConfig, SACommUnitConfig], Optional[List]) -> List[List[int, int, List[int]]]
+    """Initialize gene list"""
     sce = SUScenario(cf)
-    return sce.initialize_gene_list(input_genes=input_genes)
+    return sce.initialize_gene_list(input_gene_list=input_genes)
 
 
 def scenario_effectiveness(cf, ind):
-    # type: (Union[SASlpPosConfig, SAConnFieldConfig, SACommUnitConfig], array.array) -> (float, float, int)
+    # type: (Union[SASlpPosConfig, SAConnFieldConfig, SACommUnitConfig], array.array) -> array.array
     """Run SEIMS-based model and calculate economic and environmental effectiveness."""
     # 1. instantiate the inherited Scenario class.
     sce = SUScenario(cf)
@@ -1028,33 +1050,31 @@ def scenario_effectiveness(cf, ind):
     return ind
 
 
-def scenario_effectiveness_with_bmps_order(cf, ind):
-    # type: (Union[SASlpPosConfig, SAConnFieldConfig, SACommUnitConfig], array.array) -> (float, float, int)
-    """Run SEIMS-based model and calculate time extended economic and environmental effectiveness."""
+def scenario_effectiveness_gene_list(cf, ind):
+    # type: (Union[SASlpPosConfig, SAConnFieldConfig, SACommUnitConfig], array.array) -> array.array
+    """Run SEIMS-based model and calculate economic and environmental effectiveness by period."""
     # 1. instantiate the inherited Scenario class.
     sce = SUScenario(cf)
     ind.id = sce.set_unique_id()
-    setattr(sce, 'gene_values', ind)
+    if sce.check_valid_gene_list(ind):
+        sce.initialize_gene_list(input_gene_list=ind)
 
     # 2. decode gene values to BMP items and exporting to MongoDB.
-    sce.decoding_with_bmps_order()
+    sce.decoding_from_gene_list()
     sce.export_to_mongodb()
 
     # 3. first evaluate economic investment to exclude scenarios that don't satisfy the constraints
-    # if that don't satisfy the constraints, don't execute the time-consuming simulation process
+    # if that don't satisfy the constraints, don't execute the simulation process
     satisfied, [costs, maintains, incomes] = sce.satisfy_investment_constraints()  # sce.check_custom_constraints():
-    if satisfied:
+    if not satisfied:
+        sce.adjust_year_for_invest() # only when not satisfied
+    else:
         # 4. execute the SEIMS-based watershed model and get the timespan
         sce.execute_seims_model()
         ind.io_time, ind.comp_time, ind.simu_time, ind.runtime = sce.model.GetTimespan()
         # 5. calculate scenario effectiveness and delete intermediate data
-        sce.calculate_economy_bmps_order(costs, maintains, incomes)
-        sce.calculate_environment_bmps_order()
-    else:
-        # worst conditions
-        ind.io_time, ind.comp_time, ind.simu_time, ind.runtime = [0.] * 4
-        sce.economy = sce.worst_econ
-        sce.environment = sce.worst_env
+        sce.calculate_economy_by_period(costs, maintains, incomes)
+        sce.calculate_environment_by_period()
     # 6. Export scenarios information
     sce.export_scenario_to_txt()
     sce.export_scenario_to_gtiff()
@@ -1070,30 +1090,47 @@ def scenario_effectiveness_with_bmps_order(cf, ind):
 
     return ind
 
+def scenario_objectives_gene_list(cf, ind):
+    # type: (Union[SASlpPosConfig, SAConnFieldConfig, SACommUnitConfig], array.array) -> array.array
+    """Run SEIMS-based model and calculate optimization objectives: economy, environment, maintenance."""
+    # 1. instantiate the inherited Scenario class.
+    sce = SUScenario(cf)
+    ind.id = sce.set_unique_id()
+    if sce.check_valid_gene_list(ind):
+        sce.initialize_gene_list(input_gene_list=ind)
 
-def main_multiple(eval_num):
-    # type: (int) -> None
-    """Test of multiple evaluations of scenarios."""
-    cf = get_config_parser()
-    base_cfg = SAConfig(cf)  # type: SAConfig
-    if base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[3]:  # SLPPOS
-        cfg = SASlpPosConfig(cf)
-    elif base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[2]:  # CONNFIELD
-        cfg = SAConnFieldConfig(cf)
-    else:  # Common spatial units, e.g., HRU and EXPLICITHRU
-        cfg = SACommUnitConfig(cf)
-    cfg.construct_indexes_units_gene()
+    # 2. decode gene values to BMP items and exporting to MongoDB.
+    sce.decoding_from_gene_list()
+    sce.export_to_mongodb()
 
-    cost = list()
-    for _ in range(eval_num):
-        sce = SUScenario(cfg)
-        sce.initialize()
-        sceid = sce.set_unique_id()
-        print(sceid, sce.gene_values.__str__())
-        sce.calculate_economy()
-        cost.append(sce.economy)
-    print(max(cost), min(cost), sum(cost) / len(cost))
+    # 3. first evaluate economic investment to exclude scenarios that don't satisfy the constraints
+    # if that don't satisfy the constraints, don't execute the simulation process
+    satisfied, [costs, maintains, incomes] = sce.satisfy_investment_constraints()  # sce.check_custom_constraints():
+    if not satisfied:
+        sce.adjust_year_for_invest() # only when not satisfied
+    else:
+        # 4. execute the SEIMS-based watershed model and get the timespan
+        sce.execute_seims_model()
+        ind.io_time, ind.comp_time, ind.simu_time, ind.runtime = sce.model.GetTimespan()
+        # 5. calculate scenario effectiveness and delete intermediate data
+        sce.calculate_economy_by_period(costs, maintains, incomes)
+        sce.calculate_environment_by_period()
+        sce.count_maintain_by_period()
+    # 6. Export scenarios information
+    sce.export_scenario_to_txt()
+    sce.export_scenario_to_gtiff()
+    # 7. Clean the intermediate data of current scenario
+    # sce.clean(delete_scenario=True, delete_spatial_gfs=True)
+    # 8. Assign fitness values
+    ind.fitness.values = [sce.economy, sce.environment, sce.maintain_times]
+    ind.sed_sum = sce.sed_sum
+    ind.sed_per_period = sce.sed_per_period
+    ind.net_costs_per_period = sce.net_costs_per_period
+    ind.costs_per_period = sce.costs_per_period
+    ind.incomes_per_period = sce.incomes_per_period
+    ind.maintain_per_period = sce.maintain_per_period
 
+    return ind
 
 def main_single(sceid, gene_values):
     """Test of single evaluation of scenario."""
@@ -1122,9 +1159,32 @@ def main_single(sceid, gene_values):
     print('Scenario %d: %s\n' % (sceid, ', '.join(repr(v) for v in sce.gene_values)))
     print('Effectiveness:\n\teconomy: %f\n\tenvironment: %f\n' % (sce.economy, sce.environment))
 
+def main_multiple(eval_num):
+    # type: (int) -> None
+    """Test of multiple evaluations of scenarios."""
+    cf = get_config_parser()
+    base_cfg = SAConfig(cf)  # type: SAConfig
+    if base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[3]:  # SLPPOS
+        cfg = SASlpPosConfig(cf)
+    elif base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[2]:  # CONNFIELD
+        cfg = SAConnFieldConfig(cf)
+    else:  # Common spatial units, e.g., HRU and EXPLICITHRU
+        cfg = SACommUnitConfig(cf)
+    cfg.construct_indexes_units_gene()
+
+    cost = list()
+    for _ in range(eval_num):
+        sce = SUScenario(cfg)
+        sce.initialize()
+        sceid = sce.set_unique_id()
+        print(sceid, sce.gene_values.__str__())
+        sce.calculate_economy()
+        cost.append(sce.economy)
+    print(max(cost), min(cost), sum(cost) / len(cost))
+
 
 def main_manual(sceid, gene_values):
-    """Test of set scenario manually."""
+    """Test of set scenario manually (from input genes)."""
     cf = get_config_parser()
     base_cfg = SAConfig(cf)  # type: SAConfig
     if base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[3]:  # SLPPOS
@@ -1158,8 +1218,8 @@ def main_manual(sceid, gene_values):
     # sce.clean(delete_scenario=True, delete_spatial_gfs=True)
 
 
-def main_manual_bmps_order(sceid, gene_values):
-    """Test of set scenario manually."""
+def main_manual_gene_list(sceid, input_gene_list):
+    """Test of set scenario manually, with given scenario id and input gene list."""
     cf = get_config_parser()
     base_cfg = SAConfig(cf)  # type: SAConfig
     if base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[3]:  # SLPPOS
@@ -1172,15 +1232,15 @@ def main_manual_bmps_order(sceid, gene_values):
     sce = SUScenario(cfg)
 
     sce.set_unique_id(sceid)
-    sce.initialize(input_genes=gene_values)
-    sce.decoding_with_bmps_order()
+    sce.initialize_gene_list(input_gene_list=input_gene_list)
+    sce.decoding_from_gene_list()
     sce.export_to_mongodb()
     satisfied, [costs, maintains, incomes] = sce.satisfy_investment_constraints()
-    print('investments: ', costs + maintains)
+    # print('investments: ', costs + maintains)
     if satisfied:
         sce.execute_seims_model()
-        sce.calculate_economy_bmps_order(costs, maintains, incomes)
-        sce.calculate_environment_bmps_order()
+        sce.calculate_economy_by_period(costs, maintains, incomes)
+        sce.calculate_environment_by_period()
         sce.export_sce_tif = True
         sce.export_scenario_to_gtiff(sce.model.output_dir + os.sep + 'scenario_%d.tif' % sceid)
         sce.export_sce_txt = True
@@ -1230,342 +1290,12 @@ def generate_tiff_txt(sceid, gene_values):
     # sce.clean(delete_scenario=True, delete_spatial_gfs=True)
 
 
-def extra_process_for_last_generation(cf, log_filename, last_gen, output_path, export_tif=False):
-    base_cfg = SAConfig(cf)  # type: SAConfig
-    if base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[3]:  # SLPPOS
-        cfg = SASlpPosConfig(cf)
-    elif base_cfg.bmps_cfg_unit == BMPS_CFG_UNITS[2]:  # CONNFIELD
-        cfg = SAConnFieldConfig(cf)
-    else:  # Common spatial units, e.g., HRU and EXPLICITHRU
-        cfg = SACommUnitConfig(cf)
-    cfg.construct_indexes_units_gene()
-
-    def cumulative(lists):
-        cu_list = []
-        length = len(lists)
-        cu_list = [sum(lists[0:x:1]) for x in range(0, length + 1)]
-        return cu_list[1:]
-
-    import ast
-    # read runtime.log
-    last_gen_str = 'Generation: {}'.format(last_gen)
-    with open(log_filename) as logfp:
-        for line in logfp:
-            if last_gen_str not in line:
-                continue
-            next(logfp)  # title line
-            for target_line in logfp:
-                items = target_line.split('\t')
-                sceid = int(items[1])
-                print('output %d' % (sceid,))
-                gene_values = ast.literal_eval(items[9][11:-2])
-                output_tif = '{}/Scenario_{}.tif'.format(output_path, sceid)
-
-                sce = SUScenario(cfg)
-                sce.set_unique_id(sceid)
-                sce.initialize(input_genes=gene_values)
-                sce.decoding()
-                sce.export_to_mongodb()
-                # indicate the model has run
-                sce.modelrun = True
-                sce.modelout_dir = sce.model.output_dir
-
-                # generate tif and txt for the scenario
-                if export_tif:
-                    sce.export_sce_tif = True
-                    sce.export_scenario_to_gtiff(output_tif)
-
-                # statistics by period for the scenario
-                sce_dict = dict()
-                sce_dict['sceid'] = sceid
-                sce_dict['economy'] = float(items[2])
-                sce_dict['environment'] = float(items[3])
-                sce_dict['sed_sum'] = float(items[4])
-                sce_dict['sed_pp'] = ast.literal_eval(items[5])
-                sce_dict['net_cost_pp'] = ast.literal_eval(items[6])
-                sce_dict['cost_pp'] = ast.literal_eval(items[7])
-                sce_dict['income_pp'] = ast.literal_eval(items[8])
-                sce_dict['gene_values'] = gene_values
-                sce_dict['periods'] = sce.statistics_by_period_bmp()
-                sce_dict['net_cost_cumul'] = cumulative(sce_dict['net_cost_pp'])
-                sce_dict['redunction_rates'] = []
-
-                # calc cumulative reduction rates
-                cumul_sed = 0.
-                base_sed_amounts = sce.eval_info['BASE_SED_PERIODS']
-                cumul_sed_amounts = cumulative(base_sed_amounts)
-                for index, sed in enumerate(sce_dict['sed_pp']):
-                    environment = (base_sed_amounts[index] - sed) * 100 / base_sed_amounts[index]
-                    sce_dict['periods'][index]['SUMMARY']['environment'] = environment
-
-                    cumul_sed += sed
-                    cumul_env = (cumul_sed_amounts[index] - cumul_sed) * 100 / cumul_sed_amounts[index]
-                    sce_dict['redunction_rates'].append(cumul_env)
-
-                output_json = '{}/Scenario_{}.json'.format(output_path, sceid)
-                with open(output_json, 'w') as fp:
-                    json.dump(sce_dict, fp)
-
-
-def test_func():
-    # main_single()
-    # main_multiple(4)
-
-    # run base
-    # sid = 0
-    # gvalues = [0.0] * 105
-    # main_manual(sid, gvalues)
-
-    # selected scenario
-    # sid = 10
-    # gvalues = [0.0, 2.0, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0, 2.0, 0.0, 2.0, 0.0, 0.0,
-    #            0.0, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0, 2.0, 0.0, 1.0, 1.0, 0.0, 2.0, 2.0, 0.0, 2.0, 2.0, 0.0, 0.0, 2.0, 0.0,
-    #            2.0, 2.0, 0.0, 2.0, 0.0, 0.0, 1.0, 3.0, 2.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 2.0,
-    #            0.0, 2.0, 2.0, 1.0, 0.0, 0.0, 2.0, 2.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            2.0, 2.0, 2.0, 0.0, 0.0, 0.0, 1.0, 3.0, 4.0, 1.0, 3.0, 0.0, 1.0, 3.0, 0.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual(sid, gvalues)
-
-    # STEP+FIXED+HH
-    print('-----STEP+FIXED+HH-----')
-    sid = 240815984
-    gvalues = [0.0, 2002.0, 2003.0, 2003.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 0.0, 0.0, 2003.0, 2001.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 2002.0, 0.0, 0.0, 2002.0, 0.0, 1004.0, 1001.0, 0.0, 2001.0, 2001.0, 0.0, 2003.0, 2004.0, 0.0, 0.0, 2003.0, 0.0, 2003.0, 2001.0, 0.0, 2004.0, 0.0, 0.0, 1001.0, 3001.0, 2002.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1001.0, 2002.0, 2004.0, 0.0, 2002.0, 2003.0, 1001.0, 0.0, 0.0, 2001.0, 2001.0, 0.0, 1001.0, 2001.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 2001.0, 2005.0, 0.0, 0.0, 0.0, 1004.0, 3001.0, 4002.0, 1004.0, 3003.0, 0.0, 1002.0, 3001.0, 0.0, 2005.0, 2002.0, 0.0, 0.0, 0.0, 0.0]
-    main_manual_bmps_order(sid, gvalues)
-
-    # STEP+FIXED+MM
-    print('-----STEP+FIXED+MM-----')
-    sid = 248886478
-    gvalues = [0.0, 2002.0, 2003.0, 2005.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 0.0, 0.0, 2005.0, 2001.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 2002.0, 0.0, 0.0, 2001.0, 0.0, 1003.0, 1001.0, 0.0, 2005.0, 2001.0, 0.0, 2003.0, 2004.0, 0.0, 0.0, 2003.0, 0.0, 2003.0, 2001.0, 0.0, 2003.0, 0.0, 0.0, 1001.0, 3001.0, 2001.0, 0.0, 2005.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1001.0, 2004.0, 2005.0, 0.0, 2005.0, 2003.0, 1002.0, 0.0, 0.0, 2002.0, 2001.0, 0.0, 1001.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 2001.0, 2005.0, 0.0, 0.0, 0.0, 1003.0, 3003.0, 4003.0, 1002.0, 3004.0, 0.0, 1001.0, 3004.0, 0.0, 2005.0, 2004.0, 0.0, 0.0, 0.0, 0.0]
-    main_manual_bmps_order(sid, gvalues)
-
-    # STEP+FIXED+LL
-    print('-----STEP+FIXED+LL-----')
-    sid = 187742724
-    gvalues = [0.0, 2004.0, 2005.0, 2005.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 0.0, 0.0, 2002.0, 2003.0, 0.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2001.0, 2001.0, 0.0, 0.0, 2002.0, 0.0, 1001.0, 1002.0, 0.0, 2001.0, 2002.0, 0.0, 2002.0, 2005.0, 0.0, 0.0, 2005.0, 0.0, 2003.0, 2001.0, 0.0, 2003.0, 0.0, 0.0, 1005.0, 3002.0, 2003.0, 0.0, 2001.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1003.0, 2001.0, 2005.0, 0.0, 2002.0, 2002.0, 1004.0, 0.0, 0.0, 2005.0, 2001.0, 0.0, 1004.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 2002.0, 2003.0, 0.0, 0.0, 0.0, 1003.0, 3002.0, 4003.0, 1003.0, 3003.0, 0.0, 1001.0, 3004.0, 0.0, 2002.0, 2005.0, 0.0, 0.0, 0.0, 0.0]
-    main_manual_bmps_order(sid, gvalues)
-
-    # # STEP+VARY+HH
-    # print('-----STEP+VARY+HH-----')
-    # sid = 573558828
-    # gvalues = [0.0, 2002.0, 2002.0, 2005.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2002.0, 0.0, 0.0, 2004.0, 2003.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 2002.0, 0.0, 0.0, 2002.0, 0.0, 1003.0, 1001.0, 0.0, 2001.0, 2001.0, 0.0, 2001.0, 2005.0, 0.0, 0.0, 2002.0, 0.0, 2003.0, 2001.0, 0.0, 2003.0, 0.0, 0.0, 1001.0, 3001.0, 2005.0, 0.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1001.0, 2001.0, 2001.0, 0.0, 2003.0, 2004.0, 1004.0, 0.0, 0.0, 2004.0, 2001.0, 0.0, 1001.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2001.0, 2001.0, 2001.0, 0.0, 0.0, 0.0, 1001.0, 3002.0, 4003.0, 1004.0, 3001.0, 0.0, 1002.0, 3005.0, 0.0, 2003.0, 2002.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual_bmps_order(sid, gvalues)
-    #
-    # # STEP+VARY+MM
-    # print('-----STEP+VARY+MM-----')
-    # sid = 248509513
-    # gvalues = [0.0, 2002.0, 2002.0, 2004.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 0.0, 0.0, 2005.0, 2001.0, 0.0, 2005.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 2004.0, 0.0, 0.0, 2002.0, 0.0, 1001.0, 1001.0, 0.0, 2004.0, 2001.0, 0.0, 2005.0, 2004.0, 0.0, 0.0, 2005.0, 0.0, 2004.0, 2003.0, 0.0, 2001.0, 0.0, 0.0, 1002.0, 3002.0, 2001.0, 0.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1001.0, 2001.0, 2004.0, 0.0, 2002.0, 2004.0, 1001.0, 0.0, 0.0, 2004.0, 2001.0, 0.0, 1001.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 2001.0, 2005.0, 0.0, 0.0, 0.0, 1002.0, 3002.0, 4004.0, 1001.0, 3001.0, 0.0, 1003.0, 3005.0, 0.0, 2003.0, 2003.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual_bmps_order(sid, gvalues)
-    #
-    # # STEP+VARY+LL
-    # print('-----STEP+VARY+LL-----')
-    # sid = 120310505
-    # gvalues = [0.0, 2004.0, 2003.0, 2002.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 0.0, 0.0, 2005.0, 2002.0, 0.0, 2005.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 2001.0, 0.0, 0.0, 2001.0, 0.0, 1001.0, 1002.0, 0.0, 2005.0, 2001.0, 0.0, 2002.0, 2002.0, 0.0, 0.0, 2003.0, 0.0, 2005.0, 2001.0, 0.0, 2003.0, 0.0, 0.0, 1001.0, 3003.0, 2002.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1004.0, 2005.0, 2005.0, 0.0, 2003.0, 2004.0, 1003.0, 0.0, 0.0, 2001.0, 2001.0, 0.0, 1004.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 2002.0, 2005.0, 0.0, 0.0, 0.0, 1004.0, 3002.0, 4005.0, 1003.0, 3002.0, 0.0, 1001.0, 3001.0, 0.0, 2001.0, 2003.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # benchmark scenario: all BMPs are implemented in the 1st year
-    # sid = 1051
-    # gvalues = [0.0, 2001.0, 2001.0, 2001.0, 2001.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2001.0, 0.0, 0.0, 2001.0, 2001.0,
-    #            0.0, 2001.0, 0.0, 0.0,
-    #            0.0, 0.0, 0.0, 2001.0, 2001.0, 0.0, 0.0, 2001.0, 0.0, 1001.0, 1001.0, 0.0, 2001.0, 2001.0, 0.0, 2001.0,
-    #            2001.0, 0.0, 0.0, 2001.0, 0.0,
-    #            2001.0, 2001.0, 0.0, 2001.0, 0.0, 0.0, 1001.0, 3001.0, 2001.0, 0.0, 2001.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            0.0, 1001.0, 2001.0, 2001.0,
-    #            0.0, 2001.0, 2001.0, 1001.0, 0.0, 0.0, 2001.0, 2001.0, 0.0, 1001.0, 2001.0, 0.0, 0.0, 0.0, 0.0, 2001.0,
-    #            0.0,
-    #            0.0, 0.0, 0.0, 0.0,
-    #            2001.0, 2001.0, 2001.0, 0.0, 0.0, 0.0, 1001.0, 3001.0, 4001.0, 1001.0, 3001.0, 0.0, 1001.0, 3001.0, 0.0,
-    #            2001.0, 2001.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # benchmark scenario: all BMPs are implemented in the 2nd year
-    # sid = 1052
-    # gvalues = [0.0, 2002.0, 2002.0, 2002.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2002.0, 0.0, 0.0, 2002.0, 2002.0,
-    #            0.0, 2002.0, 0.0, 0.0,
-    #            0.0, 0.0, 0.0, 2002.0, 2002.0, 0.0, 0.0, 2002.0, 0.0, 1002.0, 1002.0, 0.0, 2002.0, 2002.0, 0.0, 2002.0,
-    #            2002.0, 0.0, 0.0, 2002.0, 0.0,
-    #            2002.0, 2002.0, 0.0, 2002.0, 0.0, 0.0, 1002.0, 3002.0, 2002.0, 0.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            0.0, 1002.0, 2002.0, 2002.0,
-    #            0.0, 2002.0, 2002.0, 1002.0, 0.0, 0.0, 2002.0, 2002.0, 0.0, 1002.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 2002.0, 0.0,
-    #            0.0, 0.0, 0.0, 0.0,
-    #            2002.0, 2002.0, 2002.0, 0.0, 0.0, 0.0, 1002.0, 3002.0, 4002.0, 1002.0, 3002.0, 0.0, 1002.0, 3002.0, 0.0,
-    #            2002.0, 2002.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # benchmark scenario: all BMPs are implemented in the 3rd year
-    # sid = 1053
-    # gvalues = [0.0, 2003.0, 2003.0, 2003.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 0.0, 0.0, 2003.0, 2003.0,
-    #            0.0, 2003.0, 0.0, 0.0,
-    #            0.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 0.0, 2003.0, 0.0, 1003.0, 1003.0, 0.0, 2003.0, 2003.0, 0.0, 2003.0,
-    #            2003.0, 0.0, 0.0, 2003.0, 0.0,
-    #            2003.0, 2003.0, 0.0, 2003.0, 0.0, 0.0, 1003.0, 3003.0, 2003.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            0.0, 1003.0, 2003.0, 2003.0,
-    #            0.0, 2003.0, 2003.0, 1003.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 1003.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 0.0,
-    #            0.0, 0.0, 0.0, 0.0,
-    #            2003.0, 2003.0, 2003.0, 0.0, 0.0, 0.0, 1003.0, 3003.0, 4003.0, 1003.0, 3003.0, 0.0, 1003.0, 3003.0, 0.0,
-    #            2003.0, 2003.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # benchmark scenario: all BMPs are implemented in the 4th year
-    # sid = 1054
-    # gvalues = [0.0, 2004.0, 2004.0, 2004.0, 2004.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 0.0, 0.0, 2004.0, 2004.0,
-    #            0.0, 2004.0, 0.0, 0.0,
-    #            0.0, 0.0, 0.0, 2004.0, 2004.0, 0.0, 0.0, 2004.0, 0.0, 1004.0, 1004.0, 0.0, 2004.0, 2004.0, 0.0, 2004.0,
-    #            2004.0, 0.0, 0.0, 2004.0, 0.0,
-    #            2004.0, 2004.0, 0.0, 2004.0, 0.0, 0.0, 1004.0, 3004.0, 2004.0, 0.0, 2004.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            0.0, 1004.0, 2004.0, 2004.0,
-    #            0.0, 2004.0, 2004.0, 1004.0, 0.0, 0.0, 2004.0, 2004.0, 0.0, 1004.0, 2004.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 0.0,
-    #            0.0, 0.0, 0.0, 0.0,
-    #            2004.0, 2004.0, 2004.0, 0.0, 0.0, 0.0, 1004.0, 3004.0, 4004.0, 1004.0, 3004.0, 0.0, 1004.0, 3004.0, 0.0,
-    #            2004.0, 2004.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # benchmark scenario: all BMPs are implemented in the 5th year
-    # sid = 1055
-    # gvalues = [0.0, 2005.0, 2005.0, 2005.0, 2005.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 0.0, 0.0, 2005.0, 2005.0,
-    #            0.0, 2005.0, 0.0, 0.0,
-    #            0.0, 0.0, 0.0, 2005.0, 2005.0, 0.0, 0.0, 2005.0, 0.0, 1005.0, 1005.0, 0.0, 2005.0, 2005.0, 0.0, 2005.0,
-    #            2005.0, 0.0, 0.0, 2005.0, 0.0,
-    #            2005.0, 2005.0, 0.0, 2005.0, 0.0, 0.0, 1005.0, 3005.0, 2005.0, 0.0, 2005.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            0.0, 1005.0, 2005.0, 2005.0,
-    #            0.0, 2005.0, 2005.0, 1005.0, 0.0, 0.0, 2005.0, 2005.0, 0.0, 1005.0, 2005.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 0.0,
-    #            0.0, 0.0, 0.0, 0.0,
-    #            2005.0, 2005.0, 2005.0, 0.0, 0.0, 0.0, 1005.0, 3005.0, 4005.0, 1005.0, 3005.0, 0.0, 1005.0, 3005.0, 0.0,
-    #            2005.0, 2005.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # BMP 1 are implemented in the first year
-    # sid = 101
-    # gvalues = [0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 1001.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            2003.0,
-    #            0.0, 0.0, 2003.0, 0.0, 2003.0, 0.0, 2003.0, 2003.0, 0.0, 2003.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 2003.0, 2003.0, 0.0, 1001.0,
-    #            3003.0, 0.0,
-    #            0.0, 2003.0, 2003.0, 0.0, 2003.0, 0.0, 2003.0, 2003.0, 0.0, 1001.0, 3003.0, 0.0, 0.0, 1001.0, 0.0, 2003.0, 0.0, 0.0, 0.0,
-    #            2003.0, 0.0,
-    #            0.0, 1001.0, 0.0, 2003.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 1001.0, 2003.0, 0.0, 1001.0, 3003.0, 4003.0, 2003.0, 0.0, 0.0, 0.0,
-    #            0.0, 0.0,
-    #            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1001.0, 2003.0, 0.0, 1001.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 0.0, 0.0,
-    #            0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # # BMP 2 are implemented in the first year
-    # sid = 102
-    # gvalues = [0.0, 2001.0, 0.0, 0.0, 0.0, 0.0, 2001.0, 0.0, 0.0, 0.0, 1003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            2001.0,
-    #            0.0, 0.0, 2001.0, 0.0, 2001.0, 0.0, 2001.0, 2001.0, 0.0, 2001.0, 0.0, 0.0, 2001.0, 2001.0, 0.0, 2001.0, 2001.0, 0.0, 1003.0,
-    #            3003.0, 0.0,
-    #            0.0, 2001.0, 2001.0, 0.0, 2001.0, 0.0, 2001.0, 2001.0, 0.0, 1003.0, 3003.0, 0.0, 0.0, 1003.0, 0.0, 2001.0, 0.0, 0.0, 0.0,
-    #            2001.0, 0.0,
-    #            0.0, 1003.0, 0.0, 2001.0, 0.0, 0.0, 2001.0, 2001.0, 0.0, 1003.0, 2001.0, 0.0, 1003.0, 3003.0, 4003.0, 2001.0, 0.0, 0.0, 0.0,
-    #            0.0, 0.0,
-    #            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1003.0, 2001.0, 0.0, 1003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2001.0, 2001.0, 0.0, 0.0, 0.0,
-    #            0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # BMP 3 are implemented in the first year
-    # sid = 103
-    # gvalues = [0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 1003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            2003.0,
-    #            0.0, 0.0, 2003.0, 0.0, 2003.0, 0.0, 2003.0, 2003.0, 0.0, 2003.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 2003.0, 2003.0, 0.0, 1003.0,
-    #            3001.0, 0.0,
-    #            0.0, 2003.0, 2003.0, 0.0, 2003.0, 0.0, 2003.0, 2003.0, 0.0, 1003.0, 3001.0, 0.0, 0.0, 1003.0, 0.0, 2003.0, 0.0, 0.0, 0.0,
-    #            2003.0, 0.0,
-    #            0.0, 1003.0, 0.0, 2003.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 1003.0, 2003.0, 0.0, 1003.0, 3001.0, 4003.0, 2003.0, 0.0, 0.0, 0.0,
-    #            0.0, 0.0,
-    #            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1003.0, 2003.0, 0.0, 1003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 0.0, 0.0,
-    #            0.0]
-    # main_manual_bmps_order(sid, gvalues)
-    #
-    # # BMP 4 are implemented in the first year
-    # sid = 104
-    # gvalues = [0.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 0.0, 0.0, 0.0, 1003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #            2003.0,
-    #            0.0, 0.0, 2003.0, 0.0, 2003.0, 0.0, 2003.0, 2003.0, 0.0, 2003.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 2003.0, 2003.0, 0.0, 1003.0,
-    #            3003.0, 0.0,
-    #            0.0, 2003.0, 2003.0, 0.0, 2003.0, 0.0, 2003.0, 2003.0, 0.0, 1003.0, 3003.0, 0.0, 0.0, 1003.0, 0.0, 2003.0, 0.0, 0.0, 0.0,
-    #            2003.0, 0.0,
-    #            0.0, 1003.0, 0.0, 2003.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 1003.0, 2003.0, 0.0, 1003.0, 3003.0, 4001.0, 2003.0, 0.0, 0.0, 0.0,
-    #            0.0, 0.0,
-    #            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1003.0, 2003.0, 0.0, 1003.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2003.0, 2003.0, 0.0, 0.0, 0.0,
-    #            0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # BMP 4 are implemented in the first year
-    # sid = 11111
-    # gvalues = [0.0, 2002.0, 2002.0, 2004.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2004.0, 0.0, 0.0, 2005.0, 2001.0,
-    #            0.0, 2005.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 2004.0, 0.0, 0.0, 2002.0, 0.0, 1001.0, 1001.0, 0.0, 2004.0,
-    #            2001.0, 0.0, 2005.0, 2004.0, 0.0, 0.0, 2005.0, 0.0, 2004.0, 2003.0, 0.0, 2001.0, 0.0, 0.0, 1002.0,
-    #            3002.0, 2001.0, 0.0, 2002.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1001.0, 2001.0, 2004.0, 0.0, 2002.0,
-    #            2004.0, 1001.0, 0.0, 0.0, 2004.0, 2001.0, 0.0, 1001.0, 2003.0, 0.0, 0.0, 0.0, 0.0, 2005.0, 0.0, 0.0, 0.0,
-    #            0.0, 0.0, 2005.0, 2001.0, 2005.0, 0.0, 0.0, 0.0, 1002.0, 3002.0, 4004.0, 1001.0, 3001.0, 0.0, 1003.0,
-    #            3005.0, 0.0, 2003.0, 2003.0, 0.0, 0.0, 0.0, 0.0]
-    # main_manual_bmps_order(sid, gvalues)
-
-    # Generate TXT files and gif files for the models that have been run.
-    # generate_giff_txt(sid, gvalues)
-    # generate_giff_txt_with_bmps_order(sid, gvalues)
-
-
-def recalc_economy():
-    # only for some custom functions
-    # the operation list -> str only works in python 3
-    log_file = 'D:/TempData/runtime.log.bk'
-    output_file = 'D:/TempData/runtime.log'
-    contents = []
-    with open(log_file, 'r') as fp_in:
-        for index, line in enumerate(fp_in.readlines()):
-            if index in [0,1]:
-                contents.append(line)
-                continue
-            items = line.split('\t')
-            sce_id = int(items[1])
-            gene_values_str = items[7][12:-3]
-            # print(gene_values_str)
-            gene_values = [float(g) for g in gene_values_str.split(',')]
-            # print(gene_values)
-
-            cf = get_config_parser()
-            cfg = SASlpPosConfig(cf)
-            cfg.construct_indexes_units_gene()
-            sce = SUScenario(cfg)
-            sce.set_unique_id(sce_id)
-            sce.initialize(input_genes=gene_values)
-            sce.decoding_with_bmps_order()
-            # sce.export_to_mongodb()
-            satisfied, [costs, maintains, incomes] = sce.satisfy_investment_constraints()
-            new_economy = sce.calculate_economy_bmps_order(costs, maintains, incomes)
-            items.insert(7,str(sce.costs_per_period))
-            items.insert(8,str(sce.incomes_per_period))
-            contents.append('\t'.join(items))
-
-    with open(output_file, 'w') as fp_out:
-        fp_out.writelines(contents)
-
 
 if __name__ == '__main__':
-    # output_tif = 'D:/Programs/SEIMS/data/youwuzhen/ss_youwuzhen10m_longterm_model/Scenario_220322012.tif'
-    # gene_values = [0.0, 2.0, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0, 2.0, 0.0, 2.0, 0.0,
-    #                0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0, 2.0, 0.0, 1.0, 1.0, 0.0, 2.0, 2.0, 0.0, 2.0, 2.0, 0.0, 0.0,
-    #                2.0, 0.0, 2.0, 2.0, 0.0, 2.0, 0.0, 0.0, 1.0, 3.0, 2.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    #                1.0, 2.0, 2.0, 0.0, 2.0, 2.0, 1.0, 0.0, 0.0, 2.0, 2.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0,
-    #                0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0, 1.0, 3.0, 4.0, 1.0, 3.0, 0.0, 1.0, 3.0, 0.0, 2.0,
-    #                2.0, 0.0, 0.0, 0.0, 0.0]
-    # generate_giff_txt_with_bmps_order(220322012, gene_values, True, True, output_tif)
+    
+    main_multiple(3)
 
-    gvalues = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-               0.0, 0.0, 2.0, 0.0, 3.0, 0.0, 2.0, 2.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0, 0.0,
-               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 1.0, 3.0, 0.0, 2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-               1.0, 0.0, 4.0, 2.0, 0.0, 0.0, 2.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0]
-    generate_tiff_txt(111, gvalues)
-
-    # recalc_economy()
-
-    # test_func()
-
-    # cf = get_config_parser()
-    # extra_process_for_last_generation(cf,
-    #     'D:/Programs/SEIMS/data/youwuzhen/ss_youwuzhen10m_longterm_model/SA_NSGA2_SLPPOS_HILLSLP_Gen_2_Pop_4/runtime.log',
-    #     2,
-    #     'D:/Programs/SEIMS/data/youwuzhen/ss_youwuzhen10m_longterm_model/group12_opt30/Scenarios/')
+   
 
 # cf = get_config_parser()
 # # cfg = SAConfig(cf)  # type: SAConfig
