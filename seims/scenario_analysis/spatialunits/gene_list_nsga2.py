@@ -44,8 +44,8 @@ from scenario_analysis.spatialunits.config import SASlpPosConfig, SAConnFieldCon
     SACommUnitConfig
 from scenario_analysis.spatialunits.scenario2 import SUScenario
 from scenario_analysis.spatialunits.scenario2 import initialize_scenario_gene_list, scenario_objectives_gene_list
-from scenario_analysis.spatialunits.userdef import check_individual_diff,\
-    crossover_rdm, crossover_slppos, crossover_updown, mutate_rule, mutate_rdm
+from scenario_analysis.spatialunits.userdef2 import check_individual_diff_gene_list,\
+    crossover_rdm_gene_list, crossover_slppos_gene_list, crossover_updown_gene_list, mutate_rule_gene_list, mutate_rdm_gene_list
 
 # Definitions, assignments, operations, etc. that will be executed by each worker
 #    when paralleled by SCOOP.
@@ -78,12 +78,12 @@ toolbox.register('population_byinputs', initRepeatWithCfgFromList, list, toolbox
 toolbox.register('evaluate', scenario_objectives_gene_list)
 
 # knowledge-rule based mate and mutate
-toolbox.register('mate_slppos', crossover_slppos)
-toolbox.register('mate_updown', crossover_updown)
-toolbox.register('mutate_rule', mutate_rule)
+toolbox.register('mate_slppos', crossover_slppos_gene_list)
+toolbox.register('mate_updown', crossover_updown_gene_list)
+toolbox.register('mutate_rule', mutate_rule_gene_list)
 # random-based mate and mutate
-toolbox.register('mate_rdm', crossover_rdm)
-toolbox.register('mutate_rdm', mutate_rdm)
+toolbox.register('mate_rdm', crossover_rdm_gene_list)
+toolbox.register('mutate_rdm', mutate_rdm_gene_list)
 
 toolbox.register('select', tools.selNSGA2)
 
@@ -92,9 +92,7 @@ def run_base_scenario(sceobj): # type:(SUScenario) -> None
     """Run base scenario to get the environment effectiveness value."""
     base_ind = creator.Individual(initialize_scenario_gene_list(sceobj.cfg))
     for i in list(range(len(base_ind))):
-        base_ind[i][0] = 0
-        base_ind[i][1] = 0
-        base_ind[i][2] = [0] * sceobj.change_times
+        base_ind[i] = [0, 0, [0] * sceobj.change_times]
     base_ind = scenario_objectives_gene_list(sceobj.cfg, base_ind)
     sceobj.base_amount = base_ind.fitness.values[1] # environment - sediment amount has been assigned to sce.base_amount
 
@@ -210,7 +208,7 @@ def main(sceobj):
                 print('The initial population should be greater or equal than 2. '
                       'Please check the parameters ranges or change the sampling strategy!')
                 exit(2)
-        return pops_for_validation  # Currently, `invalid_pops` contains evaluated individuals
+        return pops_for_validation  # Currently, it contains evaluated individuals
 
     # Record the count and execute timespan of model runs during the optimization
     modelruns_count = {0: len(pop)}
@@ -255,32 +253,30 @@ def main(sceobj):
                     if cfg_method == BMPS_CFG_METHODS[3]:  # SLPPOS method
                         toolbox.mate_slppos(ind1, ind2, sceobj.cfg.hillslp_genes_num)
                     elif cfg_method == BMPS_CFG_METHODS[2]:  # UPDOWN method
-                        toolbox.mate_updown(updown_units, gene_to_unit, unit_to_gene, ind1, ind2)
+                        toolbox.mate_updown(ind1, ind2, updown_units, gene_to_unit, unit_to_gene)
                     else:
                         toolbox.mate_rdm(ind1, ind2)
 
                 if cfg_method == BMPS_CFG_METHODS[0]:
-                    toolbox.mutate_rdm(possible_gene_values, ind1, perc=mut_perc, indpb=mut_rate)
-                    toolbox.mutate_rdm(possible_gene_values, ind2, perc=mut_perc, indpb=mut_rate)
+                    toolbox.mutate_rdm(ind1, percent = mut_perc, prob = mut_rate, possible_gene = possible_gene_values)
+                    toolbox.mutate_rdm(ind2, percent = mut_perc, prob = mut_rate, possible_gene = possible_gene_values)
                 else:
                     tagnames = None
                     if sceobj.cfg.bmps_cfg_unit == BMPS_CFG_UNITS[3]:
                         tagnames = sceobj.cfg.slppos_tagnames
-                    toolbox.mutate_rule(units_info, gene_to_unit, unit_to_gene,
-                                        suit_bmps, ind1,
-                                        perc=mut_perc, indpb=mut_rate,
+                    toolbox.mutate_rule(ind1, mut_perc,mut_rate, units_info, gene_to_unit, unit_to_gene,
+                                        suit_bmps,
                                         unit=cfg_unit, method=cfg_method,
                                         tagnames=tagnames,
                                         thresholds=sceobj.cfg.boundary_adaptive_threshs)
-                    toolbox.mutate_rule(units_info, gene_to_unit, unit_to_gene,
-                                        suit_bmps, ind2,
-                                        perc=mut_perc, indpb=mut_rate,
+                    toolbox.mutate_rule(ind1, mut_perc,mut_rate, units_info, gene_to_unit, unit_to_gene,
+                                        suit_bmps,
                                         unit=cfg_unit, method=cfg_method,
                                         tagnames=tagnames,
                                         thresholds=sceobj.cfg.boundary_adaptive_threshs)
-                if check_individual_diff(old_ind1, ind1):
+                if check_individual_diff_gene_list(old_ind1, ind1):
                     delete_fitness(ind1)
-                if check_individual_diff(old_ind2, ind2):
+                if check_individual_diff_gene_list(old_ind2, ind2):
                     delete_fitness(ind2)
 
         # Evaluate the individuals with an invalid fitness
