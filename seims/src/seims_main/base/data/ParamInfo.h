@@ -313,7 +313,7 @@ T ParamInfo<T>::GetAdjustedValueWithIndex(const T pre_value, const int curImpact
 template <typename T>
 T ParamInfo<T>::GetAdjustedValueWithIndexAndMT(const T pre_value, const int curImpactIndex, bool hasMaintain = false, float mtEffect = 0.f) {
     T res;
-    if (not hasMaintain) {
+    if (! hasMaintain) {
         res = GetAdjustedValueWithIndex(pre_value, curImpactIndex);
     }
     else {

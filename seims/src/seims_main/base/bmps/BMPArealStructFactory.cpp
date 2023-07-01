@@ -119,8 +119,7 @@ BMPArealStructFactory::BMPArealStructFactory(const int scenarioId, const int bmp
         for (vector<string>::iterator it = tempLocations.begin();it!=tempLocations.end();it++)
         {
             // deal with location|year|mt1:mt2 string
-            vector<string> temp;
-            SplitStringForValues(*it, '|', temp);
+            vector<string> temp = SplitString(*it, '|');
             int loc = stoi(temp[0]);
             int timeIndex = stoi(temp[1])-1; // year index start from 0
             vector<int> maintain;
