@@ -709,9 +709,9 @@ class SUScenario(Scenario):
                     
 
     def calculate_profits_by_period(self):
-        bmp_costs_by_period = [0.] * self.change_times
-        bmp_maintain_by_period = [0.] * self.change_times
-        bmp_income_by_period = [0.] * self.change_times
+        bmp_costs_by_period = numpy.array([0.] * self.change_times)
+        bmp_maintain_by_period =  numpy.array([0.] * self.change_times)
+        bmp_income_by_period =  numpy.array([0.] * self.change_times)
         for unit_id, gene_idx in viewitems(self.cfg.unit_to_gene):
             gene_v = self.gene_list[gene_idx][0]
             if gene_v == 0:
@@ -1069,7 +1069,7 @@ def scenario_effectiveness_gene_list(cf, ind):
 
     # 3. first evaluate economic investment to exclude scenarios that don't satisfy the constraints
     # if that don't satisfy the constraints, don't execute the simulation process
-    satisfied, [costs, maintains, incomes] = sce.satisfy_investment_constraints()  # sce.check_custom_constraints():
+    satisfied, [costs, maintains, incomes] = sce.satisfy_investment_plan()  # sce.check_custom_constraints():
     if not satisfied:
         sce.adjust_year_for_invest() # only when not satisfied
     else:
@@ -1109,7 +1109,7 @@ def scenario_objectives_gene_list(cf, ind):
 
     # 3. first evaluate economic investment to exclude scenarios that don't satisfy the constraints
     # if that don't satisfy the constraints, don't execute the simulation process
-    satisfied, [costs, maintains, incomes] = sce.satisfy_investment_constraints()  # sce.check_custom_constraints():
+    satisfied, [costs, maintains, incomes] = sce.satisfy_investment_plan()  # sce.check_custom_constraints():
     if not satisfied:
         sce.adjust_year_for_invest() # only when not satisfied
     else:
@@ -1239,7 +1239,7 @@ def main_manual_gene_list(sceid, input_gene_list):
     sce.initialize_gene_list(input_gene_list=input_gene_list)
     sce.decoding_from_gene_list()
     sce.export_to_mongodb()
-    satisfied, [costs, maintains, incomes] = sce.satisfy_investment_constraints()
+    satisfied, [costs, maintains, incomes] = sce.satisfy_investment_plan()
     # print('investments: ', costs + maintains)
     if satisfied:
         sce.execute_seims_model()
@@ -1297,8 +1297,15 @@ def generate_tiff_txt(sceid, gene_values):
 
 if __name__ == '__main__':
     
-    main_multiple(3)
+    # main_multiple(3)
+    # test with given gene list
+    #input_gene_list =  [[0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 1, 1, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [1, 3, [0, 0, 0, 1, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [1, 1, [0, 0, 1, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 1, 1, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 0, 1, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [1, 2, [0, 0, 0, 1, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 4, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 1, [0, 1, 1, 1, 0]], [0, 0, [0, 0, 0, 0, 0]], [1, 3, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 1, [0, 0, 0, 0, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 4, [0, 0, 0, 0, 1]], [2, 3, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 0, 0, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 1, 1, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 1, [0, 1, 1, 1, 1]], [1, 3, [0, 0, 0, 0, 1]], [0, 0, [0, 0, 0, 0, 0]], [2, 3, [0, 0, 0, 1, 1]], [0, 0, [0, 0, 0, 0, 0]], [2, 5, [0, 0, 0, 0, 0]], [2, 5, [0, 0, 0, 0, 0]], [1, 5, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [1, 2, [0, 0, 1, 1, 1]], [1, 4, [0, 0, 0, 0, 0]]]
+    #sceid = 661042474
+    #main_manual_gene_list(sceid, input_gene_list)
 
+    input_gene_list =  [[0, 0, [0, 0, 0, 0, 0]], [1, 3, [0, 0, 0, 1, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 3, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 1, 1, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 1, 1, 0]], [1, 5, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [1, 5, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 3, [0, 0, 0, 0, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 3, [0, 0, 0, 1, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [1, 5, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 1, 0, 1]], [2, 5, [0, 0, 0, 0, 0]], [2, 3, [0, 0, 0, 0, 1]], [0, 0, [0, 0, 0, 0, 0]], [1, 3, [0, 0, 0, 1, 1]], [0, 0, [0, 0, 0, 0, 0]], [1, 3, [0, 0, 0, 1, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 1, 0, 1]], [0, 0, [0, 0, 0, 0, 0]], [1, 1, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 3, [0, 0, 0, 1, 0]], [0, 0, [0, 0, 0, 0, 0]], [1, 5, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 1, 1, 0]], [2, 4, [0, 0, 0, 0, 1]], [2, 1, [0, 1, 1, 1, 1]], [0, 0, [0, 0, 0, 0, 0]], [2, 3, [0, 0, 0, 1, 1]], [2, 4, [0, 0, 0, 0, 1]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [2, 3, [0, 0, 0, 0, 1]], [0, 0, [0, 0, 0, 0, 0]], [2, 2, [0, 0, 0, 0, 1]], [2, 1, [0, 0, 1, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [1, 1, [0, 0, 1, 0, 0]], [0, 0, [0, 0, 0, 0, 0]], [0, 0, [0, 0, 0, 0, 0]]]
+    sceid = 514658637
+    main_manual_gene_list(sceid, input_gene_list)
    
 
 # cf = get_config_parser()

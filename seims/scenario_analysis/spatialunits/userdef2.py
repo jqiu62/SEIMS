@@ -370,6 +370,10 @@ def mutate_rule_gene_list(ind,  # type: Union[array.array, List[int], Tuple[int]
                 if ind[geneidx][0] == 0:
                     ind[geneidx][1] = 0
                     ind[geneidx][2] = [0] * len(ind[geneidx][2])
+                elif ind[geneidx][1] == 0: # assign implementation year if bmp is configured!
+                    ind[geneidx][1] = random.randint(1,len(ind[geneidx][2]))
+                    for i in range(ind[geneidx][1], len(ind[geneidx][2])):
+                        ind[geneidx][2][i] = random.randint(0,1)
                 muted[mpoint] = mplace
             else:  # No available BMP
                 pass
@@ -504,8 +508,10 @@ def main_test_crossover_mutate_gene_list(gen_num, cx_rate, mut_perc, mut_rate):
 
     for gen_id in list(range(gen_num)):
         # Calculate initial economic benefit
-        inicost1 = sce1.calculate_economy_by_period(sce1.calculate_profits_by_period())
-        inicost2 = sce2.calculate_economy_by_period(sce2.calculate_profits_by_period())
+        cost,mt,income = sce1.calculate_profits_by_period()
+        inicost1 = sce1.calculate_economy_by_period(cost,mt,income)
+        cost,mt,income = sce2.calculate_profits_by_period()
+        inicost2 = sce2.calculate_economy_by_period(cost,mt,income)
         print('## Generation %d ##' % gen_id)
         # Crossover
         print('Crossover:')
@@ -526,9 +532,11 @@ def main_test_crossover_mutate_gene_list(gen_num, cx_rate, mut_perc, mut_rate):
                   '    Scenario2: %s' % (ind1.__str__(), ind2.__str__()))
         # Calculate economic benefit after crossover
         sce1.initialize_gene_list(ind1)
-        cxcost1 = sce1.calculate_economy_by_period(sce1.calculate_profits_by_period())
+        cost1,mt1,income1 = sce1.calculate_profits_by_period()
+        cxcost1 = sce1.calculate_economy_by_period(cost1,mt1,income1)
         sce2.initialize_gene_list(ind2)
-        cxcost2 = sce2.calculate_economy_by_period(sce2.calculate_profits_by_period())
+        cost2,mt2,income2 = sce2.calculate_profits_by_period()
+        cxcost2 = sce2.calculate_economy_by_period(cost2,mt2,income2)
 
         # Mutate
         print('Mutate:')
@@ -565,9 +573,11 @@ def main_test_crossover_mutate_gene_list(gen_num, cx_rate, mut_perc, mut_rate):
 
         # Calculate economic benefit after mutate
         sce1.initialize_gene_list(ind1)
-        mutcost1 = sce1.calculate_economy_by_period(sce1.calculate_profits_by_period())
+        cost1,mt1,income1 = sce1.calculate_profits_by_period()
+        mutcost1 = sce1.calculate_economy_by_period(cost1,mt1,income1)
         sce2.initialize_gene_list(ind2)
-        mutcost2 = sce2.calculate_economy_by_period(sce2.calculate_profits_by_period())
+        cost2,mt2,income2 = sce2.calculate_profits_by_period()
+        mutcost2 = sce2.calculate_economy_by_period(cost2,mt2,income2)
 
         print('Initial cost: \n'
               '  Scenario1: %.3f, Scenario2: %.3f\n'
