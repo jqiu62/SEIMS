@@ -97,6 +97,7 @@ void Scenario::loadBMPs() {
         int tempEffectivenessChangeable = -1;
         int changeFrequency = 0;
         int changeTimes = 0;
+        float mtEffect = 0.f; //value raised by maintain
         if (bson_iter_init_find(&iter, info, FLD_SCENARIO_BMPID)) GetNumericFromBsonIterator(&iter, BMPID);
         if (bson_iter_init_find(&iter, info, FLD_SCENARIO_SUB)) GetNumericFromBsonIterator(&iter, subScenario);
         if (bson_iter_init_find(&iter, info, FLD_SCENARIO_DIST)) distribution = GetStringFromBsonIterator(&iter);
@@ -108,7 +109,10 @@ void Scenario::loadBMPs() {
             if (bson_iter_init_find(&iter, info, FLD_SCENARIO_CHANGEFREQUENCY)) GetNumericFromBsonIterator(&iter, changeFrequency);
             // TODO, !!! MUST MODIFY. Or read from database later!
             time_t warmUpPeriod = 31536000;// 1 year
-            changeTimes = 5;//(m_endTime - m_startTime - warmUpPeriod) / changeFrequency;
+            // read change times directly from db
+            if (bson_iter_init_find(&iter, info, FLD_SCENARIO_CHANGETIMES)) GetNumericFromBsonIterator(&iter, changeTimes);
+            // read value raise by maintain
+            if (bson_iter_init_find(&iter, info, FLD_SCENARIO_MTEFFECT)) GetNumericFromBsonIterator(&iter, mtEffect);
         }
 
         /// check if raster data is need for the current BMP
@@ -176,7 +180,7 @@ void Scenario::loadBMPs() {
                                        new BMPArealStructFactory(m_sceneID, BMPID, subScenario,
                                                                  BMPType, BMPPriority, dist,
                                                                  collectionName, location, effectivenessChangeable,
-                                                                 changeFrequency, changeTimes));
+                                                                 changeFrequency, changeTimes, mtEffect));
             }
 #else
             if (BMPID == BMP_TYPE_POINTSOURCE) {

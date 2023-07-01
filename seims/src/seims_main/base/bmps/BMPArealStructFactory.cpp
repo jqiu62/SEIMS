@@ -25,6 +25,7 @@ BMPArealStruct::BMPArealStruct(const bson_t*& bsonTable, bson_iter_t& iter): m_i
         string landuse_str = GetStringFromBsonIterator(&iter);
         SplitStringForValues(landuse_str, '-', m_landuse);
     }
+    // update parameter related for dealing with function input 06-24-2023
     if (bson_iter_init_find(&iter, bsonTable, BMP_ARSTRUCT_FLD_PARAMS)) {
         string params_str = GetStringFromBsonIterator(&iter);
         vector<string> params_strs = SplitString(params_str, '-');
@@ -102,10 +103,10 @@ BMPArealStruct::~BMPArealStruct() {
 BMPArealStructFactory::BMPArealStructFactory(const int scenarioId, const int bmpId, const int subScenario,
                                              const int bmpType, const int bmpPriority, vector<string>& distribution,
                                              const string& collection, const string& location, bool effectivenessChangeable,
-                                             time_t changeFrequency, int variableTimes) :
+                                             time_t changeFrequency, int variableTimes, float mtEffect) :
     BMPFactory(scenarioId, bmpId, subScenario, bmpType, bmpPriority, distribution, collection, location,
                effectivenessChangeable, changeFrequency, variableTimes),
-    m_mgtFieldsRs(nullptr),m_unitIDsSeries(m_changeTimes),m_unitUpdateTimes(m_changeTimes),m_seriesIndex(0) {
+    m_mgtFieldsRs(nullptr),m_unitIDsSeries(m_changeTimes),m_unitUpdateTimes(m_changeTimes),m_seriesIndex(0),m_mtEffect(mtEffect) {
     if (m_distribution.size() >= 2 && StringMatch(m_distribution[0], FLD_SCENARIO_DIST_RASTER)) {
         m_mgtFieldsName = m_distribution[1];
     } else {
@@ -117,14 +118,23 @@ BMPArealStructFactory::BMPArealStructFactory(const int scenarioId, const int bmp
         vector<string> tempLocations = SplitString(location, '-');
         for (vector<string>::iterator it = tempLocations.begin();it!=tempLocations.end();it++)
         {
-            vector<int> temp;
+            // deal with location|year|mt1:mt2 string
+            vector<string> temp;
             SplitStringForValues(*it, '|', temp);
-            int loc = temp[0];
-            int time = temp[1]-1; // year index start from 0
-            for (int t = time; t < m_changeTimes; t++)
+            int loc = stoi(temp[0]);
+            int timeIndex = stoi(temp[1])-1; // year index start from 0
+            vector<int> maintain;
+            vector<string> mt = SplitString(temp[2], ':');
+            for (const string& mt1 : mt) {
+                maintain.push_back(stoi(mt1));
+            }
+            for (int t = timeIndex; t < m_changeTimes; t++)
             {
                 m_unitIDsSeries[t].push_back(loc);
-                m_unitUpdateTimes[t].insert(std::make_pair(loc,t-time));
+                m_unitUpdateTimes[t].insert(std::make_pair(loc,t-timeIndex));
+                if (maintain[t] == 1) {
+                    m_unitMaintainRecords[t].push_back(loc);
+                }
             }
         }
     }

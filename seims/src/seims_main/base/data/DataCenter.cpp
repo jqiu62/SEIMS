@@ -983,8 +983,12 @@ bool DataCenter::UpdateScenarioParametersDynamic(const int subbsn_id, time_t t) 
             if (t >= needUpdateTime){
                 cout << "Update scenario parameters dynamically." << endl;
                 int* mgtunits = tmp_bmp_areal_struct_factory->GetRasterData();
+                // unit ids with bmps for the year index
                 vector<int> sel_ids = tmp_bmp_areal_struct_factory->getUnitIDsByIndex();
                 map<int, int> unitUpdateTimes = tmp_bmp_areal_struct_factory->getUpdateTimesByIndex();
+
+                vector<int> unitIDbyMT = tmp_bmp_areal_struct_factory->getUnitIDsforMTByIndex();
+                float mtEffect = tmp_bmp_areal_struct_factory->getMTEffect();
                 // some spatial units need to update
                 if (!sel_ids.empty()){
                     /// Get landuse data of current subbasin ("0_" for the whole basin)
@@ -1039,13 +1043,13 @@ bool DataCenter::UpdateScenarioParametersDynamic(const int subbsn_id, time_t t) 
                             FLTPT** data2d = nullptr;
                             rs_map_[remote_filename]->Get2DRasterData(&nsize, &lyr, &data2d);
                             count = iter3->second->Adjust2DRasterWithImpactIndexes(nsize, lyr, data2d, mgtunits,
-                                sel_ids, unitUpdateTimes, ludata, suitablelu);
+                                sel_ids, unitUpdateTimes, ludata, suitablelu, unitIDbyMT, mtEffect);
                         }
                         else {
                             FLTPT* data = nullptr;
                             rs_map_[remote_filename]->GetRasterData(&nsize, &data);
                             count = iter3->second->Adjust1DRasterWithImpactIndexes(nsize, data, mgtunits, sel_ids,
-                                unitUpdateTimes, ludata, suitablelu);
+                                unitUpdateTimes, ludata, suitablelu, unitIDbyMT, mtEffect);
                         }
                         cout << "      A total of " << count << " has been updated for " <<
                                 remote_filename << endl;

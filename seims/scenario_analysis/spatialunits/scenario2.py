@@ -505,13 +505,16 @@ class SUScenario(Scenario):
             curd = dict()
             curd['BMPID'] = self.cfg.bmpid
             curd['NAME'] = 'S%d' % self.ID
+            curd['SUBSCENARIO'] = k
             curd['COLLECTION'] = self.bmps_info[self.cfg.bmpid]['COLLECTION']
             curd['DISTRIBUTION'] = self.bmps_info[self.cfg.bmpid]['DISTRIBUTION']
             curd['LOCATION'] = '-'.join(v)
-            curd['SUBSCENARIO'] = k
+            # curd['SUBSCENARIO'] = k
             curd['ID'] = self.ID
             curd['EFFECTIVENESSVARIABLE'] = 1 if self.cfg.effectiveness_changeable else 0
             curd['CHANGEFREQUENCY'] = self.cfg.change_frequency * 365 * 24 * 60 * 60  # convert to seconds
+            curd['CHANGETIMES'] = self.cfg.change_times # append change times for C++ scenario
+            curd['RAISE_BY_MT'] = self.bmps_params[k]['RAISE_BY_MT'] # store maintain raise values
             self.bmp_items[sce_item_count] = curd
             sce_item_count += 1
         # if BMPs_retain is not empty, append it.
@@ -523,6 +526,7 @@ class SUScenario(Scenario):
                 curd['ID'] = self.ID
                 curd['EFFECTIVENESSVARIABLE'] = 0
                 curd['CHANGEFREQUENCY'] = -1
+                curd['CHANGETIMES'] = 0
                 self.bmp_items[sce_item_count] = curd
                 sce_item_count += 1
 

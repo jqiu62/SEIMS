@@ -504,8 +504,8 @@ def main_test_crossover_mutate_gene_list(gen_num, cx_rate, mut_perc, mut_rate):
 
     for gen_id in list(range(gen_num)):
         # Calculate initial economic benefit
-        inicost1 = sce1.calculate_economy()
-        inicost2 = sce2.calculate_economy()
+        inicost1 = sce1.calculate_economy_by_period(sce1.calculate_profits_by_period())
+        inicost2 = sce2.calculate_economy_by_period(sce2.calculate_profits_by_period())
         print('## Generation %d ##' % gen_id)
         # Crossover
         print('Crossover:')
@@ -526,9 +526,9 @@ def main_test_crossover_mutate_gene_list(gen_num, cx_rate, mut_perc, mut_rate):
                   '    Scenario2: %s' % (ind1.__str__(), ind2.__str__()))
         # Calculate economic benefit after crossover
         sce1.initialize_gene_list(ind1)
-        cxcost1 = sce1.calculate_economy()
+        cxcost1 = sce1.calculate_economy_by_period(sce1.calculate_profits_by_period())
         sce2.initialize_gene_list(ind2)
-        cxcost2 = sce2.calculate_economy()
+        cxcost2 = sce2.calculate_economy_by_period(sce2.calculate_profits_by_period())
 
         # Mutate
         print('Mutate:')
@@ -565,9 +565,9 @@ def main_test_crossover_mutate_gene_list(gen_num, cx_rate, mut_perc, mut_rate):
 
         # Calculate economic benefit after mutate
         sce1.initialize_gene_list(ind1)
-        mutcost1 = sce1.calculate_economy()
+        mutcost1 = sce1.calculate_economy_by_period(sce1.calculate_profits_by_period())
         sce2.initialize_gene_list(ind2)
-        mutcost2 = sce2.calculate_economy()
+        mutcost2 = sce2.calculate_economy_by_period(sce2.calculate_profits_by_period())
 
         print('Initial cost: \n'
               '  Scenario1: %.3f, Scenario2: %.3f\n'

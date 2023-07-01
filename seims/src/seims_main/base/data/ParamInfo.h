@@ -68,17 +68,20 @@ public:
 
     //! Add functions to calculate value change 2023-06-23
     
-    T GetAdjustedValue(T pre_value = NODATA_VALUE);
+    T GetAdjustedValue(T pre_value = NODATA_VALUE); // use a single impact value
 
-    //! Adjust value with indexed impact
-    T GetAdjustedValueWithImpactIndexes(T pre_value, int curImpactIndex);
+    //! Adjust value with indexed impact, either from impact series or from function input
+    T GetAdjustedValueWithIndex(T pre_value, int curImpactIndex);
 
-    //! Adjust value with indexed impact - need to match function type 2023-06-23
-    T GetAdjustedValueWithFunction(T pre_value, int curImpactIndex);
+    //! Adjust value with index and maintain
+    T GetAdjustedValueWithIndexAndMT(T pre_value, int curImpactIndex, bool hasMaintain = false, float mtEffect = 0.f);
 
-    //! Adjust value with index either from reading impact series or from calculating function
-    T GetAdjustedValueWithIndexCombined(T pre_value, int curImpactIndex);
-    
+    //! Get change value with given year index 06-30-2023
+    T CalculateChangeValueWithIndex(int curImpactIndex);
+
+    //! Calculate the value with given prevalue and change value
+    T CalculateValueWithPreAndChange(T pre_value, T change_value);
+
     //! Adjust 1D array
     void Adjust1DArray(int n, T* data);
 
@@ -93,7 +96,8 @@ public:
     //! Adjust 1D Raster on selected area, using impact index version
     int Adjust1DRasterWithImpactIndexes(int n, T* data, const int* units,
                                         const vector<int>& selunits, const map<int, int>& impactIndexes,
-                                        const int* lu, const vector<int>& sellu);
+                                        const int* lu, const vector<int>& sellu,
+                                        const vector<int>& unitMaintain, float mtEffect = 0.f);
 
     //! Adjust 2D array
     void Adjust2DArray(int n, T** data);
@@ -108,7 +112,8 @@ public:
     //! Adjust 2D Raster on selected area, using impact index version
     int Adjust2DRasterWithImpactIndexes(int n, int lyrs, T** data, const int* units,
                                         const vector<int>& selunits, const map<int, int>& impactIndexes,
-                                        const int* lu, const vector<int>& sellu);
+                                        const int* lu, const vector<int>& sellu,
+                                        const vector<int>& unitMaintain, float mtEffect = 0.f);
 
     //! Name
     string Name;
@@ -246,6 +251,12 @@ ParamInfo<T>::~ParamInfo() {
 
 template <typename T>
 T ParamInfo<T>::GetAdjustedValue(const T pre_value /* = NODATA_VALUE */) {
+    T res = CalculateValueWithPreAndChange(pre_value, Impact);
+    return res;
+}
+
+template <typename T>
+T ParamInfo<T>::CalculateValueWithPreAndChange(const T pre_value /* = NODATA_VALUE */, const T changeValue) {
     T res = pre_value;
     if (FloatEqual(pre_value, NODATA_VALUE)) {
         res = Value;
@@ -255,14 +266,14 @@ T ParamInfo<T>::GetAdjustedValue(const T pre_value /* = NODATA_VALUE */) {
         return res;
     }
 
-    if (StringMatch(Change, PARAM_CHANGE_RC) && !FloatEqual(Impact, 1.)) {
-        res *= Impact;
+    if (StringMatch(Change, PARAM_CHANGE_RC) && !FloatEqual(changeValue, 1.)) {
+        res *= changeValue;
     }
-    else if (StringMatch(Change, PARAM_CHANGE_AC) && !FloatEqual(Impact, 0.)) {
-        res += Impact;
+    else if (StringMatch(Change, PARAM_CHANGE_AC) && !FloatEqual(changeValue, 0.)) {
+        res += changeValue;
     }
-    else if (StringMatch(Change, PARAM_CHANGE_VC) && !FloatEqual(Impact, NODATA_VALUE)) {
-        res = Impact;
+    else if (StringMatch(Change, PARAM_CHANGE_VC) && !FloatEqual(changeValue, NODATA_VALUE)) {
+        res = changeValue;
     }
     else if (StringMatch(Change, PARAM_CHANGE_NC)) {
         //don't change
@@ -275,87 +286,45 @@ T ParamInfo<T>::GetAdjustedValue(const T pre_value /* = NODATA_VALUE */) {
 }
 
 template <typename T>
-T ParamInfo<T>::GetAdjustedValueWithImpactIndexes(const T pre_value, const int curImpactIndex) {
-    T res = pre_value;
-    if (FloatEqual(pre_value, NODATA_VALUE)) {
-        res = Value;
-    }
-    if (FloatEqual(res, NODATA_VALUE)) {
-        /// Do not change NoData value
-        return res;
-    }
-
-    T tmpImpact = ImpactSeries[curImpactIndex];
-    if (StringMatch(Change, PARAM_CHANGE_RC) && !FloatEqual(tmpImpact, 1)) {
-        res *= tmpImpact;
-    }
-    else if (StringMatch(Change, PARAM_CHANGE_AC) && !FloatEqual(tmpImpact, 0)) {
-        res += tmpImpact;
-    }
-    else if (StringMatch(Change, PARAM_CHANGE_VC) && !FloatEqual(tmpImpact, NODATA_VALUE)) {
-        res = tmpImpact;
-    }
-    else if (StringMatch(Change, PARAM_CHANGE_NC)) { //don't change
-        return res;
-    }
-
-    if (!FloatEqual(Maximum, NODATA_VALUE) && res > Maximum) res = Maximum;
-    if (!FloatEqual(Minimum, NODATA_VALUE) && res < Minimum) res = Minimum;
-    return res;
-}
-
-template <typename T>
-T ParamInfo<T>::GetAdjustedValueWithFunction(const T pre_value, const int curImpactIndex) {
-    T res = pre_value;
-    if (FloatEqual(pre_value, NODATA_VALUE)) {
-        res = Value;
-    }
-    if (FloatEqual(res, NODATA_VALUE)) {
-        /// Do not change NoData value
-        return res;
-    }
-
-    T tmpImpact = curImpactIndex;
-
+T ParamInfo<T>::CalculateChangeValueWithIndex(const int curImpactIndex) {
+    T tmpImpact;
     if (StringMatch(FuncType, "")) {
-        return res; //don't change if no function type provided
+        tmpImpact = ImpactSeries[curImpactIndex];
     }
-    if (StringMatch(FuncType, PARAM_CHANGEFUNC_LINEAR)) {
+    else if (StringMatch(FuncType, PARAM_CHANGEFUNC_LINEAR)) {
         tmpImpact = FuncParams[0] + FuncParams[1] * curImpactIndex; //basic form of y = a1 + a2*x
     }
-    if (StringMatch(FuncType, PARAM_CHANGEFUNC_EXP)) {
+    else if (StringMatch(FuncType, PARAM_CHANGEFUNC_EXP)) {
         tmpImpact = FuncParams[0] + FuncParams[1] * (1.0 - exp(FuncParams[2] * curImpactIndex)); //basic form of y = a1 + a2(1-e^(a3*x))
     }
-    if (StringMatch(FuncType, PARAM_CHANGEFUNC_SIG)) {
-        tmpImpact = (FuncParams[0]-FuncParams[3]) / (1 + pow((curImpactIndex / FuncParams[1]), FuncParams[2])) + FuncParams[3]; //basic form of y = a4 + (a1-a4)/(1+(x/a2)^a3)
+    else if (StringMatch(FuncType, PARAM_CHANGEFUNC_SIG)) {
+        tmpImpact = (FuncParams[0] - FuncParams[3]) / (1 + pow((curImpactIndex / FuncParams[1]), FuncParams[2])) + FuncParams[3]; //basic form of y = a4 + (a1-a4)/(1+(x/a2)^a3)
     }
+    return tmpImpact;
+}
 
-    if (StringMatch(Change, PARAM_CHANGE_RC) && !FloatEqual(tmpImpact, 1)) {
-        res *= tmpImpact;
-    }
-    else if (StringMatch(Change, PARAM_CHANGE_AC) && !FloatEqual(tmpImpact, 0)) {
-        res += tmpImpact;
-    }
-    else if (StringMatch(Change, PARAM_CHANGE_VC) && !FloatEqual(tmpImpact, NODATA_VALUE)) {
-        res = tmpImpact;
-    }
-    else if (StringMatch(Change, PARAM_CHANGE_NC)) { //don't change
-        return res;
-    }
-
-    if (!FloatEqual(Maximum, NODATA_VALUE) && res > Maximum) res = Maximum;
-    if (!FloatEqual(Minimum, NODATA_VALUE) && res < Minimum) res = Minimum;
+template <typename T>
+T ParamInfo<T>::GetAdjustedValueWithIndex(const T pre_value, const int curImpactIndex) {
+    T tmpImpact = CalculateChangeValueWithIndex(curImpactIndex);
+    T res = CalculateValueWithPreAndChange(pre_value, tmpImpact);
     return res;
 }
 
 template <typename T>
-T ParamInfo<T>::GetAdjustedValueWithIndexCombined(const T pre_value, const int curImpactIndex) {
-    T res = pre_value;
-    if (StringMatch(FuncType, "")) {
-        res = GetAdjustedValueWithImpactIndexes(pre_value, curImpactIndex);
+T ParamInfo<T>::GetAdjustedValueWithIndexAndMT(const T pre_value, const int curImpactIndex, bool hasMaintain = false, float mtEffect = 0.f) {
+    T res;
+    if (not hasMaintain) {
+        res = GetAdjustedValueWithIndex(pre_value, curImpactIndex);
     }
     else {
-        res = GetAdjustedValueWithFunction(pre_value, curImpactIndex);
+        if (curImpactIndex - 1 >= 0) {
+            T tmpImpact = CalculateChangeValueWithIndex(curImpactIndex);
+            T raiseValue = abs(CalculateChangeValueWithIndex(curImpactIndex) - CalculateChangeValueWithIndex(curImpactIndex - 1)) * mtEffect;
+            res = CalculateValueWithPreAndChange(pre_value, tmpImpact + raiseValue);
+        }
+        else {// first year does not need maintain.
+            res = GetAdjustedValueWithIndex(pre_value, curImpactIndex);
+        }
     }
     return res;
 }
@@ -406,9 +375,10 @@ int ParamInfo<T>::Adjust1DRaster(const int n, T* data, const int* units,
 template <typename T>
 int ParamInfo<T>::Adjust1DRasterWithImpactIndexes(const int n, T* data, const int* units,
                                                   const vector<int>& selunits, const map<int, int>& impactIndexes,
-                                                  const int* lu, const vector<int>& sellu) {
+                                                  const int* lu, const vector<int>& sellu, const vector<int>& unitMaintain, float mtEffect = 0.f) {
     int count = 0;
     for (int i = 0; i < n; i++) {
+        bool hasMaintain = false;
         if (FloatEqual(data[i], NODATA_VALUE)) {
             /// Do not change NoData value
             continue;
@@ -422,11 +392,14 @@ int ParamInfo<T>::Adjust1DRasterWithImpactIndexes(const int n, T* data, const in
         if (find(sellu.begin(), sellu.end(), curlu) == sellu.end()) {
             continue;
         }
+        if (find(unitMaintain.begin(), unitMaintain.end(), curunit) != unitMaintain.end()) {
+            hasMaintain = true;
+        }
         map<int, int>::const_iterator it = impactIndexes.find(curunit);
         if (it == impactIndexes.end()) {
             continue;
         }
-        data[i] = GetAdjustedValueWithIndexCombined(data[i], it->second);
+        data[i] = GetAdjustedValueWithIndexAndMT(data[i], it->second, hasMaintain, mtEffect);
         count += 1;
     }
     return count;
@@ -474,9 +447,11 @@ template <typename T>
 int ParamInfo<T>::Adjust2DRasterWithImpactIndexes(const int n, const int lyrs, T** data,
                                                   const int* units, const vector<int>& selunits,
                                                   const map<int, int>& impactIndexes,
-                                                  const int* lu, const vector<int>& sellu) {
+                                                  const int* lu, const vector<int>& sellu,
+                                                  const vector<int>& unitMaintain, float mtEffect = 0.f) {
     int count = 0;
     for (int i = 0; i < n; i++) {
+        bool hasMaintain = false;
         int curunit = units[i];
         int curlu = lu[i];
         //cannot find, continue
@@ -486,12 +461,15 @@ int ParamInfo<T>::Adjust2DRasterWithImpactIndexes(const int n, const int lyrs, T
         if (find(sellu.begin(), sellu.end(), curlu) == sellu.end()) {
             continue;
         }
+        if (find(unitMaintain.begin(), unitMaintain.end(), curunit) != unitMaintain.end()) {
+            hasMaintain = true;
+        }
         map<int, int>::const_iterator it = impactIndexes.find(curunit);
         if (it == impactIndexes.end()) {
             continue;
         }
         for (int j = 0; j < lyrs; j++) {
-            data[i][j] = GetAdjustedValueWithIndexCombined(data[i][j], it->second);
+            data[i][j] = GetAdjustedValueWithIndexAndMT(data[i][j], it->second, hasMaintain, mtEffect);
     
         }
         count += 1;

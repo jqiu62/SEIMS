@@ -78,7 +78,7 @@ public:
     BMPArealStructFactory(int scenarioId, int bmpId, int subScenario,
                           int bmpType, int bmpPriority, vector<string>& distribution,
                           const string& collection, const string& location, bool effectivenessChangeable = false,
-                          time_t changeFrequency = -1, int variableTimes = -1);
+                          time_t changeFrequency = -1, int variableTimes = -1, float mtEffect = 0.f);
 
     /// Destructor
     ~BMPArealStructFactory();
@@ -96,8 +96,12 @@ public:
     const vector<int>& getUnitIDs() const { return m_unitIDs; }
     const vector<int>& getUnitIDsByIndex(){ return m_unitIDsSeries[m_seriesIndex]; }
     const map<int, int>& getUpdateTimesByIndex(){ return m_unitUpdateTimes[m_seriesIndex]; }
+
+    //also maintain ids for each year
+    const vector<int>& getUnitIDsforMTByIndex() { return m_unitMaintainRecords[m_seriesIndex]; }
     void increaseSeriesIndex(){ m_seriesIndex++; }
     int getSeriesIndex() { return m_seriesIndex; }
+    float getMTEffect() { return m_mtEffect; }
 
     //! Get areal BMP parameters
     const map<int, BMPArealStruct*>& getBMPsSettings() const { return m_bmpStructMap; }
@@ -112,10 +116,16 @@ private:
     int* m_mgtFieldsRs;
     //! locations
     vector<int> m_unitIDs;
-    //! Store the spatial unit IDs that need to update every year
+
+    //! Store the spatial unit IDs that need to update for different years
+    //! If the unit has been configured with bmp since some time, for years later on it will remain.
     vector<vector<int> > m_unitIDsSeries;
     //! How many times are the above spatial units updated respectively
+    //! store together by year, store as {unit id: actual implemented years}
     vector<map<int,int> > m_unitUpdateTimes;
+    //! Store unit ids for the year when maintenance is adpoted
+    vector<vector<int>> m_unitMaintainRecords;
+    float m_mtEffect;
     int m_seriesIndex;
     /*!
      *\key The unique areal BMP ID
