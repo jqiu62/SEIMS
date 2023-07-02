@@ -106,7 +106,7 @@ BMPArealStructFactory::BMPArealStructFactory(const int scenarioId, const int bmp
                                              time_t changeFrequency, int variableTimes, float mtEffect) :
     BMPFactory(scenarioId, bmpId, subScenario, bmpType, bmpPriority, distribution, collection, location,
                effectivenessChangeable, changeFrequency, variableTimes),
-    m_mgtFieldsRs(nullptr),m_unitIDsSeries(m_changeTimes),m_unitUpdateTimes(m_changeTimes),m_seriesIndex(0),m_mtEffect(mtEffect) {
+    m_mgtFieldsRs(nullptr),m_unitIDsSeries(m_changeTimes),m_unitUpdateTimes(m_changeTimes),m_unitMaintainRecords(m_changeTimes),m_seriesIndex(0), m_mtEffect(mtEffect) {
     if (m_distribution.size() >= 2 && StringMatch(m_distribution[0], FLD_SCENARIO_DIST_RASTER)) {
         m_mgtFieldsName = m_distribution[1];
     } else {
@@ -118,14 +118,14 @@ BMPArealStructFactory::BMPArealStructFactory(const int scenarioId, const int bmp
         vector<string> tempLocations = SplitString(location, '-');
         for (vector<string>::iterator it = tempLocations.begin();it!=tempLocations.end();it++)
         {
-            // deal with location|year|mt1:mt2 string
-            vector<string> temp = SplitString(*it, '|');
-            int loc = stoi(temp[0]);
-            int timeIndex = stoi(temp[1])-1; // year index start from 0
-            vector<int> maintain;
-            vector<string> mt = SplitString(temp[2], ':');
-            for (const string& mt1 : mt) {
-                maintain.push_back(stoi(mt1));
+            // deal with location|year|mt1|mt2 string
+            vector<int> temp;
+            SplitStringForValues(*it, '|', temp);
+            int loc = temp[0];
+            int timeIndex = temp[1]-1; // year index start from 0
+            vector<int> maintain; //store the rest as maintain 
+            for (int i = 2; i < temp.size(); i++) {
+                maintain.push_back(temp[i]);
             }
             for (int t = timeIndex; t < m_changeTimes; t++)
             {
@@ -136,6 +136,7 @@ BMPArealStructFactory::BMPArealStructFactory(const int scenarioId, const int bmp
                 }
             }
         }
+        // cout << "Successfully loading BMP Subscenario" << endl;
     }
     else{
         SplitStringForValues(location, '-', m_unitIDs);

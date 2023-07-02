@@ -591,4 +591,4 @@ def main_test_crossover_mutate_gene_list(gen_num, cx_rate, mut_perc, mut_rate):
 
 
 if __name__ == '__main__':
-    main_test_crossover_mutate_gene_list(4, 0.8, 0.2, 0.1)
+    main_test_crossover_mutate_gene_list(2, 0.8, 0.2, 0.1)
