@@ -71,6 +71,10 @@ class SUScenario(Scenario):
             if self.cfg.bmps_cfg_unit == BMPS_CFG_UNITS[3] else ['LANDUSE']
         self.get_suitable_bmps(bmps_suit_type)
 
+    def setBaseEnvironment(self, number): # set base amount after running base scenario
+        self.base_amount = number
+        return self.base_amount
+
     def read_bmp_parameters(self):
         """Read BMP configuration from MongoDB.
         Each BMP is stored in Collection as one item identified by 'SUBSCENARIO' field,
@@ -741,8 +745,8 @@ class SUScenario(Scenario):
         # count maintenance for each period
         mt_by_period = [0] * self.change_times
         for t in range(self.change_times):
-            for i in self.gene_list:
-                if self.gene_list[i][2][t] == 1:
+            for gene in self.gene_list:
+                if gene[2][t] == 1:
                     mt_by_period[t] += 1
         self.maintain_per_period = mt_by_period
         self.maintain_times = sum(mt_by_period)
@@ -756,11 +760,11 @@ class SUScenario(Scenario):
         maintain = numpy.array(bmp_maintain_by_period)
         income = numpy.array(bmp_income_by_period)
         remain = invest_limit - (costs + maintain - income)
-        print('investment limits: ', invest_limit)
-        print('costs: ', costs)
-        print('maintain: ', maintain)
-        print('income: ', income)
-        print('remain: ', remain)
+        #print('investment limits: ', invest_limit)
+        #print('costs: ', costs)
+        #print('maintain: ', maintain)
+        #print('income: ', income)
+        #print('remain: ', remain)
 
         # not consider investment quota
         if not self.cfg.enable_investment_quota:
@@ -1110,6 +1114,7 @@ def scenario_objectives_gene_list(cf, ind):
     # 3. first evaluate economic investment to exclude scenarios that don't satisfy the constraints
     # if that don't satisfy the constraints, don't execute the simulation process
     satisfied, [costs, maintains, incomes] = sce.satisfy_investment_plan()  # sce.check_custom_constraints():
+    # print(satisfied)
     if not satisfied:
         sce.adjust_year_for_invest() # only when not satisfied
     else:
@@ -1244,7 +1249,9 @@ def main_manual_gene_list(sceid, input_gene_list):
     if satisfied:
         sce.execute_seims_model()
         sce.calculate_economy_by_period(costs, maintains, incomes)
+        sce.setBaseEnvironment(34444457.60) # calculated earlier
         sce.calculate_environment_by_period()
+        print(f"Environment:{sce.environment}")
         sce.export_sce_tif = True
         sce.export_scenario_to_gtiff(sce.model.output_dir + os.sep + 'scenario_%d.tif' % sceid)
         sce.export_sce_txt = True

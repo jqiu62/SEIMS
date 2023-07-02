@@ -172,7 +172,8 @@ class Scenario(object):
             pass
         for objid, bmp_item in viewitems(self.bmp_items):
             bmp_item['_id'] = ObjectId()
-            print(f"Inserting item with ID: {bmp_item['_id']}, BMPID: {bmp_item['BMPID']}, SUBSCENARIO: {bmp_item['SUBSCENARIO']}") # potential bug
+            # For test:
+            # print(f"Inserting item with ID: {bmp_item['_id']}, BMPID: {bmp_item['BMPID']}, SUBSCENARIO: {bmp_item['SUBSCENARIO']}") # potential bug
             collection.insert_one(bmp_item)
 
 

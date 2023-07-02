@@ -51,8 +51,8 @@ from scenario_analysis.spatialunits.userdef2 import check_individual_diff_gene_l
 #    when paralleled by SCOOP.
 # DEAP related operations such as initialize, register, etc.
 
-# Multiobjects: Minimize the economical cost, and maximize reduction rate of soil erosion, plus with fewest maintenance efforts
-multi_weight = (-1., 1., 0.4)
+# Multiobjects: Minimize the economical cost, and maximize reduction rate of soil erosion, plus with relatively fewer maintenance efforts
+multi_weight = (-1., 1., -0.4)
 filter_ind = False  # type: bool # Filter for valid population for the next generation
 # Specific conditions for multiple objectives, None means no rule.
 conditions = [None, '>0.', None]
@@ -61,7 +61,8 @@ creator.create('FitnessMulti', base.Fitness, weights=multi_weight)
 # NOTE that to maintain the compatibility with Python2 and Python3,
 #      the typecode=str('d') MUST NOT changed to typecode='d', since
 #      the latter will raise TypeError that 'must be char, not unicode'!
-creator.create('Individual', array.array, typecode=str('d'), fitness=creator.FitnessMulti,
+# Change to list.
+creator.create('Individual', list, fitness=creator.FitnessMulti,
                gen=-1, id=-1,
                io_time=0., comp_time=0., simu_time=0., runtime=0.)
 
@@ -94,7 +95,7 @@ def run_base_scenario(sceobj): # type:(SUScenario) -> None
     for i in list(range(len(base_ind))):
         base_ind[i] = [0, 0, [0] * sceobj.change_times]
     base_ind = scenario_objectives_gene_list(sceobj.cfg, base_ind)
-    sceobj.base_amount = base_ind.fitness.values[1] # environment - sediment amount has been assigned to sce.base_amount
+    sceobj.setBaseEnvironment(base_ind.fitness.values[1]) # environment - sediment amount has been assigned to sce.base_amount
 
 
 def main(sceobj):
