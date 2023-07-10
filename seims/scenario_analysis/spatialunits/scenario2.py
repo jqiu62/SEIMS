@@ -1249,7 +1249,7 @@ def main_manual_gene_list(sceid, input_gene_list):
     if satisfied:
         sce.execute_seims_model()
         sce.calculate_economy_by_period(costs, maintains, incomes)
-        sce.setBaseEnvironment(34444457.60) # calculated earlier
+        # sce.setBaseEnvironment(34444457.60) # test base value
         sce.calculate_environment_by_period()
         print(f"Environment:{sce.environment}")
         sce.export_sce_tif = True
