@@ -312,8 +312,12 @@ class ImportParam2Mongo(object):
             data_import = read_output_item(user_out_field_array, iitem)
             data_import[ModelCfgFields.use] = 1
             cur_filter = dict()
-            cur_filter[ModelCfgFields.output_id] = data_import[ModelCfgFields.output_id]
-            update_requests.append(UpdateOne(cur_filter, {'$set': data_import}))
+            # cur_filter[ModelCfgFields.output_id] = data_import[ModelCfgFields.output_id]
+
+            # use id combined with file name to add multiple files
+            data_import["newid"] = data_import[ModelCfgFields.output_id] + "_" + data_import[ModelCfgFields.filename]
+            cur_filter["newid"] = data_import["newid"]
+            update_requests.append(UpdateOne(cur_filter, {'$set': data_import},upsert=True))
         # execute import operators
         results = MongoUtil.run_bulk_write(cfg.maindb[DBTableNames.main_fileout], update_requests)
         print('Updated %d desired outputs!' % (results.modified_count
@@ -406,7 +410,10 @@ def main():
 
     seims_cfg = parse_ini_configuration()
 
-    ImportParam2Mongo.workflow(seims_cfg)
+    # ImportParam2Mongo.workflow(seims_cfg)
+    # 07-14-2023
+    # test file out with multiple items of the same output ids
+    ImportParam2Mongo.model_io_configuration(seims_cfg)
 
 
 if __name__ == "__main__":

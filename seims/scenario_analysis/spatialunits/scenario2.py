@@ -684,11 +684,11 @@ class SUScenario(Scenario):
             # sum of 2013-2017
             rr = RasterUtilClass.read_raster(rfile)
             sed_sum = rr.get_sum() / self.cfg.implementation_period  # Annual average of sediment 13-17
-            #for i in range(self.cfg.change_times):
-            #    # 2013-2017
-            #    filename = self.modelout_dir + os.path.sep + str(i + 3) + '_' + self.eval_info['ENVEVAL']
-            #    sed_per_period.append(RasterUtilClass.read_raster(filename).get_sum())
-            ## sed_sum = sed_per_period[-1]  # 2017 sed sum
+            for i in range(self.cfg.change_times):
+                # 2013-2017
+                filename = self.modelout_dir + os.path.sep + str(i+1) + '_' + self.eval_info['ENVEVAL']
+                sed_per_period.append(RasterUtilClass.read_raster(filename).get_sum())
+            # sed_sum = sed_per_period[-1]  # 2017 sed sum
         elif StringClass.string_match(rfile.split('.')[-1], 'txt'):  # Time series data
             sed_sum = read_simulation_from_txt(self.modelout_dir,
                                                ['SED'], self.model.OutletID,
