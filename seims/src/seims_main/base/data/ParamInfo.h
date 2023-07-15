@@ -319,7 +319,8 @@ T ParamInfo<T>::GetAdjustedValueWithIndexAndMT(const T pre_value, const int curI
     else {
         if (curImpactIndex - 1 >= 0) {
             T tmpImpact = CalculateChangeValueWithIndex(curImpactIndex);
-            T raiseValue = abs(CalculateChangeValueWithIndex(curImpactIndex) - CalculateChangeValueWithIndex(curImpactIndex - 1)) * mtEffect;
+            // need to consider positive or negative influence
+            T raiseValue = (CalculateChangeValueWithIndex(curImpactIndex) - CalculateChangeValueWithIndex(curImpactIndex - 1)) * mtEffect;
             res = CalculateValueWithPreAndChange(pre_value, tmpImpact + raiseValue);
         }
         else {// first year does not need maintain.
