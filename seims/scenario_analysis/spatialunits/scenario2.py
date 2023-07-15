@@ -62,7 +62,7 @@ class SUScenario(Scenario):
             self.gene_list = [[0, 0, [0] * self.change_times] for _ in range(self.gene_num)]
 
         self.base_amount = self.cfg.sed_sum # for calculating environment-related, update in nsga2 base run
-        self.base_sed_per_period = self.cfg.sed_per_period
+        self.base_sed_per_period = self.cfg.sed_per_period        
 
         self.bmps_params = dict()  # type: Dict[int, Any] # {bmp_subscenario id: {...}}
         self.suit_bmps = dict()  # type: Dict[AnyStr, Dict[int, List[int]]] # {type:{id: [bmp_ids]}}
@@ -689,7 +689,6 @@ class SUScenario(Scenario):
                 # for each year
                 filename = self.modelout_dir + os.path.sep + str(i+1) + '_' + self.eval_info['ENVEVAL']
                 sed_per_period.append(RasterUtilClass.read_raster(filename).get_sum())
-            # sed_sum = sed_per_period[-1]  # 2017 sed sum
         elif StringClass.string_match(rfile.split('.')[-1], 'txt'):  # Time series data
             sed_sum = read_simulation_from_txt(self.modelout_dir,
                                                ['SED'], self.model.OutletID,
@@ -703,7 +702,7 @@ class SUScenario(Scenario):
             self.sed_per_period = sed_per_period
         else:
             # reduction rate of soil erosion
-            print("Calculating:", base_amount, sed_sum)
+            # print("Calculating:", base_amount, sed_sum) # debug
             self.environment = (base_amount - sed_sum) * 100 / base_amount
             self.sed_sum = sed_sum
             self.sed_per_period = sed_per_period
@@ -741,7 +740,9 @@ class SUScenario(Scenario):
                     for prd in range(year - 1, self.cfg.change_times):  # closed interval
                         if mt[prd] == 1: # if maintenance has been adopted for the year, maintenance temporarily raises income
                             bmp_maintain_by_period[prd] += luarea * opex
-                            bmp_income_by_period[prd] += luarea * income[prd - year + 1] * bmpparam['RAISE_BY_MT']
+                            bmp_income_by_period[prd] += luarea * income[prd - year + 1] # base income
+                            if (prd - year) >=0:
+                                bmp_income_by_period[prd] += luarea * (income[prd - year + 1] - income[prd - year]) * bmpparam['RAISE_BY_MT'] #additional
                         else:
                             bmp_income_by_period[prd] += luarea * income[prd - year + 1]  # each year has different benefit
         return bmp_costs_by_period, bmp_maintain_by_period, bmp_income_by_period
@@ -827,8 +828,8 @@ class SUScenario(Scenario):
                 for obj, item in viewitems(self.bmp_items):
                     outfile.write('\t'.join(str(v) for v in list(item.values())))
                     outfile.write('\n')
-            outfile.write('Effectiveness:\n\teconomy: %f\n\tenvironment: %f\n\tsed_sum: %f\n\tsed_per_period: %s\n\tenvironment_per_period:%s\n' % (
-                self.economy, self.environment, self.sed_sum, self.sed_per_period, self.environmentbyPeriod))
+            outfile.write('Effectiveness:\n\t economy: %f\n\t environment: %f\n\t maintain:%d\n\t cost_per_period:%s\n\t income_per_period:%s\n\t sed_sum: %f\n\t sed_per_period: %s\n\t environment_per_period:%s\n\t maintain_per_period:%s\n\t' % (
+                self.economy, self.environment, self.maintain_times, self.costs_per_period, self.incomes_per_period,self.sed_sum, self.sed_per_period, self.environmentbyPeriod, self.maintain_per_period))
 
     def statistics_by_period(self):
     # summary of each year, sum of each bmp for each year
@@ -864,7 +865,7 @@ class SUScenario(Scenario):
                         implemented_index = prd - year + 1
                         if mt[prd] == 1:
                             periods[prd]['BMPS'][bmpname]['OPEX'] += luarea * bmpparam['OPEX']
-                            periods[prd]['BMPS'][bmpname]['INCOME'] += luarea * bmpparam['INCOME'][implemented_index] * bmpparam['RAISE_BY_MT']
+                            periods[prd]['BMPS'][bmpname]['INCOME'] += luarea * bmpparam['INCOME'][implemented_index] * (1+ bmpparam['RAISE_BY_MT'])
                         else:
                             periods[prd]['BMPS'][bmpname]['INCOME'] += luarea * bmpparam['INCOME'][implemented_index]
 
