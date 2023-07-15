@@ -89,22 +89,34 @@ toolbox.register('mutate_rdm', mutate_rdm_gene_list)
 toolbox.register('select', tools.selNSGA2)
 
 
-def run_base_scenario(sceobj): # type:(SUScenario) -> None
+def run_base_scenario(sceobj): # type:(SUScenario) -> tuple(float, list)
     """Run base scenario to get the environment effectiveness value."""
-    base_ind = creator.Individual(initialize_scenario_gene_list(sceobj.cfg))
-    for i in list(range(len(base_ind))):
+    base_ind = [0] * sceobj.cfg.genes_num
+    for i in range(sceobj.cfg.genes_num):
         base_ind[i] = [0, 0, [0] * sceobj.change_times]
-    base_ind = scenario_objectives_gene_list(sceobj.cfg, base_ind)
-    sceobj.setBaseEnvironment(base_ind.fitness.values[1]) # environment - sediment amount has been assigned to sce.base_amount
+    sceobj.set_unique_id(10001) # fix base scenario id
+    sceobj.initialize_gene_list(base_ind)
+    sceobj.decoding_from_gene_list()
+    sceobj.export_to_mongodb()
+    sceobj.execute_seims_model()
+    sceobj.calculate_environment_by_period()
+    sed_sum = sceobj.sed_sum # environment - sediment amount has been assigned
+    sed_per_period = sceobj.sed_per_period
+
+    sceobj.cfg.sed_sum = sed_sum
+    sceobj.cfg.eval_info["BASE_ENV"] = sed_sum
+    sceobj.cfg.sed_per_period = sed_per_period
+    
+    return sed_sum, sed_per_period
 
 
 def main(sceobj):
     # type: (SUScenario) -> Tuple[List, tools.Logbook]
     """Main workflow of NSGA-II based Scenario analysis."""
-    if sceobj.base_amount < 0:
-        run_base_scenario(sceobj)
+    if sceobj.cfg.eval_info["BASE_ENV"] < 0:
+        sed_sum, sed_per_period = run_base_scenario(sceobj)
         print('The environment effectiveness value of the '
-              'base scenario is %.2f' % sceobj.base_amount)
+              'base scenario is %.2f' % sed_sum)
     random.seed()
 
     # Initial timespan variables
@@ -430,6 +442,8 @@ if __name__ == "__main__":
     sa_cfg.construct_indexes_units_gene()
 
     sce = SUScenario(sa_cfg)
+    # test base scenario
+    # print(run_base_scenario(sce))
 
     scoop_log('### START TO SCENARIOS OPTIMIZING ###')
     startT = time.time()

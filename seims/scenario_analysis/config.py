@@ -56,8 +56,12 @@ class SAConfig(object):
         self.effectiveness_changeable = False
         self.change_frequency = -1
         self.change_times = -1
-        self.enable_investment_quota = True
+        self.enable_investment_quota = False
         self.investment_each_period = list()
+
+        self.sed_per_period = list() # empty list for sediment
+        self.sed_sum = -9999
+
         self.discount_rate = 0
         if cf.has_option('Scenario_Common', 'implementation_period'):
             self.implementation_period = cf.getfloat('Scenario_Common', 'implementation_period')

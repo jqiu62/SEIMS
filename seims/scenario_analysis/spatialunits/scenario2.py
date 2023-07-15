@@ -60,7 +60,9 @@ class SUScenario(Scenario):
         if self.cfg.change_times > 0:
             self.change_times = self.cfg.change_times # make sure self.change_times is always positive
             self.gene_list = [[0, 0, [0] * self.change_times] for _ in range(self.gene_num)]
-        self.base_amount = self.eval_info['BASE_ENV'] # for calculating environment-related, update in nsga2 base run
+
+        self.base_amount = self.cfg.sed_sum # for calculating environment-related, update in nsga2 base run
+        self.base_sed_per_period = self.cfg.sed_per_period
 
         self.bmps_params = dict()  # type: Dict[int, Any] # {bmp_subscenario id: {...}}
         self.suit_bmps = dict()  # type: Dict[AnyStr, Dict[int, List[int]]] # {type:{id: [bmp_ids]}}
@@ -71,9 +73,6 @@ class SUScenario(Scenario):
             if self.cfg.bmps_cfg_unit == BMPS_CFG_UNITS[3] else ['LANDUSE']
         self.get_suitable_bmps(bmps_suit_type)
 
-    def setBaseEnvironment(self, number): # set base amount after running base scenario
-        self.base_amount = number
-        return self.base_amount
 
     def read_bmp_parameters(self):
         """Read BMP configuration from MongoDB.
@@ -678,14 +677,16 @@ class SUScenario(Scenario):
             # self.model.UnsetMongoClient()
             return
 
-        base_amount = self.base_amount
+        base_amount = self.cfg.sed_sum
         sed_per_period = list()
+        self.environmentbyPeriod = []
+
         if StringClass.string_match(rfile.split('.')[-1], 'tif'):  # Raster data
-            # sum of 2013-2017
+            # sum of all years
             rr = RasterUtilClass.read_raster(rfile)
             sed_sum = rr.get_sum() / self.cfg.implementation_period  # Annual average of sediment 13-17
             for i in range(self.cfg.change_times):
-                # 2013-2017
+                # for each year
                 filename = self.modelout_dir + os.path.sep + str(i+1) + '_' + self.eval_info['ENVEVAL']
                 sed_per_period.append(RasterUtilClass.read_raster(filename).get_sum())
             # sed_sum = sed_per_period[-1]  # 2017 sed sum
@@ -702,11 +703,15 @@ class SUScenario(Scenario):
             self.sed_per_period = sed_per_period
         else:
             # reduction rate of soil erosion
-            self.environment = (base_amount - sed_sum) / base_amount
+            print("Calculating:", base_amount, sed_sum)
+            self.environment = (base_amount - sed_sum) * 100 / base_amount
             self.sed_sum = sed_sum
             self.sed_per_period = sed_per_period
-            # print exception values
-            if self.environment > 1. or self.environment < 0. or self.environment is numpy.nan:
+            if self.base_sed_per_period:
+                self.environmentbyPeriod = [(ai - bi) * 100 / ai if ai != 0 else 0 for ai, bi in zip(self.base_sed_per_period, self.sed_per_period)]
+            
+            # print exception values (percent value)
+            if self.environment > 100. or self.environment < 0. or self.environment is numpy.nan:
                 print('Exception Information: Scenario ID: %d, SUM(%s): %s, per period: %s'
                       % (self.ID, rfile, repr(sed_sum), sed_per_period))
                 self.environment = self.worst_env
@@ -768,7 +773,7 @@ class SUScenario(Scenario):
 
         # not consider investment quota
         if not self.cfg.enable_investment_quota:
-            print("Not considering investment limits.")
+            # print("Not considering investment limits.")
             return True, [costs, maintain, income]
         else:
             if self.cfg.investment_each_period is None:
@@ -802,6 +807,28 @@ class SUScenario(Scenario):
             if count > 20:
                 print("No configuration can satisfy the investment plan. Consider adjust the numbers.")
                 break
+
+    def export_scenario_to_txt_gene_list(self):
+        if not self.export_sce_txt:
+            return
+        ofile = self.scenario_dir + os.path.sep + 'Scenario_%d.txt' % self.ID
+        with open(ofile, 'w', encoding='utf-8') as outfile:
+            outfile.write('Scenario ID: %d\n' % self.ID)
+            outfile.write('Gene number: %d\n' % self.gene_num)
+            outfile.write('Gene values: %s\n' % ', '.join((repr(v) for v in self.gene_list)))
+            outfile.write('Scenario items:\n')
+            if len(self.bmp_items) > 0:
+                header = list()
+                for obj, item in viewitems(self.bmp_items):
+                    header = list(item.keys())
+                    break
+                outfile.write('\t'.join(header))
+                outfile.write('\n')
+                for obj, item in viewitems(self.bmp_items):
+                    outfile.write('\t'.join(str(v) for v in list(item.values())))
+                    outfile.write('\n')
+            outfile.write('Effectiveness:\n\teconomy: %f\n\tenvironment: %f\n\tsed_sum: %f\n\tsed_per_period: %s\n\tenvironment_per_period:%s\n' % (
+                self.economy, self.environment, self.sed_sum, self.sed_per_period, self.environmentbyPeriod))
 
     def statistics_by_period(self):
     # summary of each year, sum of each bmp for each year
@@ -1084,7 +1111,7 @@ def scenario_effectiveness_gene_list(cf, ind):
         sce.calculate_economy_by_period(costs, maintains, incomes)
         sce.calculate_environment_by_period()
     # 6. Export scenarios information
-    sce.export_scenario_to_txt()
+    sce.export_scenario_to_txt_gene_list()
     sce.export_scenario_to_gtiff()
     # 7. Clean the intermediate data of current scenario
     # sce.clean(delete_scenario=True, delete_spatial_gfs=True)
@@ -1092,6 +1119,7 @@ def scenario_effectiveness_gene_list(cf, ind):
     ind.fitness.values = [sce.economy, sce.environment]
     ind.sed_sum = sce.sed_sum
     ind.sed_per_period = sce.sed_per_period
+    ind.env_per_period = sce.environmentbyPeriod
     ind.net_costs_per_period = sce.net_costs_per_period
     ind.costs_per_period = sce.costs_per_period
     ind.incomes_per_period = sce.incomes_per_period
@@ -1126,7 +1154,7 @@ def scenario_objectives_gene_list(cf, ind):
         sce.calculate_environment_by_period()
         sce.count_maintain_by_period()
     # 6. Export scenarios information
-    sce.export_scenario_to_txt()
+    sce.export_scenario_to_txt_gene_list()
     sce.export_scenario_to_gtiff()
     # 7. Clean the intermediate data of current scenario
     # sce.clean(delete_scenario=True, delete_spatial_gfs=True)
@@ -1134,6 +1162,7 @@ def scenario_objectives_gene_list(cf, ind):
     ind.fitness.values = [sce.economy, sce.environment, sce.maintain_times]
     ind.sed_sum = sce.sed_sum
     ind.sed_per_period = sce.sed_per_period
+    ind.env_per_period = sce.environmentbyPeriod
     ind.net_costs_per_period = sce.net_costs_per_period
     ind.costs_per_period = sce.costs_per_period
     ind.incomes_per_period = sce.incomes_per_period
@@ -1255,7 +1284,7 @@ def main_manual_gene_list(sceid, input_gene_list = None):
         sce.export_sce_tif = True
         sce.export_scenario_to_gtiff(sce.model.output_dir + os.sep + 'scenario_%d.tif' % sceid)
         sce.export_sce_txt = True
-        sce.export_scenario_to_txt()
+        sce.export_scenario_to_txt_gene_list()
 
         print('Scenario %d: %s\n' % (sceid, ', '.join(repr(v) for v in sce.gene_values)))
         print('Effectiveness:\n\teconomy: %f\n\tenvironment: %f\n\tsed_sum: %f\n\t'
