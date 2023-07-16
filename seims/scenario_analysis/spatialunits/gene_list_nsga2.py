@@ -52,7 +52,7 @@ from scenario_analysis.spatialunits.userdef2 import check_individual_diff_gene_l
 # DEAP related operations such as initialize, register, etc.
 
 # Multiobjects: Minimize the economical cost, and maximize reduction rate of soil erosion, plus with relatively fewer maintenance efforts
-multi_weight = (-1., 1., -0.4)
+multi_weight = (-1., 1., -0.05)
 filter_ind = False  # type: bool # Filter for valid population for the next generation
 # Specific conditions for multiple objectives, None means no rule.
 conditions = [None, '>0.', None]
@@ -110,8 +110,8 @@ def run_base_scenario(sceobj): # type:(SUScenario) -> tuple(float, list)
     return sed_sum, sed_per_period
 
 
-def main(sceobj):
-    # type: (SUScenario) -> Tuple[List, tools.Logbook]
+def main(sceobj, input_gene_single = None):
+    # type: (SUScenario, list) -> Tuple[List, tools.Logbook]
     """Main workflow of NSGA-II based Scenario analysis."""
     if sceobj.cfg.eval_info["BASE_ENV"] < 0:
         sed_sum, sed_per_period = run_base_scenario(sceobj)
@@ -177,7 +177,15 @@ def main(sceobj):
                 pop = toolbox.population_byinputs(sceobj.cfg, pareto_solutions)  # type: List
                 initialize_byinputs = True
     if not initialize_byinputs:
-        pop = toolbox.population(sceobj.cfg, n=pop_size)  # type: List
+        if input_gene_single:
+            input_gene_list = []
+            for i in range(pop_size):
+                input_gene_list.append(input_gene_single)
+            pop = toolbox.population_byinputs(sceobj.cfg, input_gene_list)
+        else:
+            pop = toolbox.population(sceobj.cfg, n=pop_size)  # type: List
+
+
 
     init_time = time.time() - stime
 
@@ -448,7 +456,8 @@ if __name__ == "__main__":
     scoop_log('### START TO SCENARIOS OPTIMIZING ###')
     startT = time.time()
 
-    fpop, fstats = main(sce)
+    input_gene_single = [0, 4, 0, 2, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 3, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0, 1, 2, 0, 3, 0, 0, 0, 1, 3, 1, 0, 2, 0, 1, 0]
+    fpop, fstats = main(sce, input_gene_single)
     fpop.sort(key=lambda x: x.fitness.values)
     scoop_log(fstats)
     with open(sa_cfg.opt.logbookfile, 'w', encoding='utf-8') as f:

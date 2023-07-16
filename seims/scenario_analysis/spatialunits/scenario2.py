@@ -61,8 +61,12 @@ class SUScenario(Scenario):
             self.change_times = self.cfg.change_times # make sure self.change_times is always positive
             self.gene_list = [[0, 0, [0] * self.change_times] for _ in range(self.gene_num)]
 
+        # initialize params
         self.base_amount = self.cfg.sed_sum # for calculating environment-related, update in nsga2 base run
-        self.base_sed_per_period = self.cfg.sed_per_period        
+        self.base_sed_per_period = self.cfg.sed_per_period
+        self.maintain_times = 0
+        self.maintain_per_period = []
+        self.environmentbyPeriod = []
 
         self.bmps_params = dict()  # type: Dict[int, Any] # {bmp_subscenario id: {...}}
         self.suit_bmps = dict()  # type: Dict[AnyStr, Dict[int, List[int]]] # {type:{id: [bmp_ids]}}
@@ -201,12 +205,13 @@ class SUScenario(Scenario):
         cr = random.randint(40, 60) / 100.
 
         if input_gene_list is not None:  # Using the input genes
-            if self.check_valid_gene_list(input_gene_list):
-                self.gene_list = input_gene_list[:]
-                self.generate_gene_values_from_gene_list()
-            if all(len(sub) == 1 for sub in input_gene_list):
+            # print(input_gene_list)
+            if len(input_gene_list) == self.gene_num and all(isinstance(sub, int) for sub in input_gene_list):
                 self.initialize(input_gene_list) # if input as gene_values, first initialize gene_values then generate gene list
                 self.generate_gene_list_from_gene_values()
+            elif self.check_valid_gene_list(input_gene_list):
+                self.gene_list = input_gene_list[:]
+                self.generate_gene_values_from_gene_list()
             return self.gene_list
 
         else:
@@ -225,8 +230,10 @@ class SUScenario(Scenario):
     # check if the input gene list is valid for initializing
     def check_valid_gene_list(self, input_gene_list = None):
         valid = False
-        if len(input_gene_list) == self.gene_num and all(len(sub) ==3 for sub in input_gene_list):
+        if len(input_gene_list) == self.gene_num:
             for sub in input_gene_list:
+                assert(isinstance(sub, list))
+                assert(len(sub)==3)
                 if sub[0] != 0:
                     valid = isinstance(sub[1], int) and 1 <= sub[1] <= self.change_times
         return valid
@@ -805,7 +812,7 @@ class SUScenario(Scenario):
                 gene[2] = [0] * self.change_times
             satisfied, _ = self.satisfy_investment_plan()
             count += 1
-            if count > 20:
+            if count > 1000:
                 print("No configuration can satisfy the investment plan. Consider adjust the numbers.")
                 break
 
@@ -1344,7 +1351,8 @@ if __name__ == '__main__':
     #sceid = 514658637
     #main_manual_gene_list(sceid, input_gene_list)
 
-    main_manual_gene_list(1112)
+    input_gene_list = [0, 4, 0, 2, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 3, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0, 1, 2, 0, 3, 0, 0, 0, 1, 3, 1, 0, 2, 0, 1, 0]
+    main_manual_gene_list(1112, input_gene_list)
    
 
 # cf = get_config_parser()
