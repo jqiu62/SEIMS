@@ -812,7 +812,7 @@ class SUScenario(Scenario):
                 gene[2] = [0] * self.change_times
             satisfied, _ = self.satisfy_investment_plan()
             count += 1
-            if count > 1000:
+            if count > 200:
                 print("No configuration can satisfy the investment plan. Consider adjust the numbers.")
                 break
 
