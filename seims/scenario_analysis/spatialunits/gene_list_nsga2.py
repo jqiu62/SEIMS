@@ -14,6 +14,7 @@ import time
 import pickle
 from typing import Dict, List
 from io import open
+import numpy as np
 
 import matplotlib as mpl
 
@@ -52,7 +53,7 @@ from scenario_analysis.spatialunits.userdef2 import check_individual_diff_gene_l
 # DEAP related operations such as initialize, register, etc.
 
 # Multiobjects: Minimize the economical cost, and maximize reduction rate of soil erosion, plus with relatively fewer maintenance efforts
-multi_weight = (-1., 1., -0.05)
+multi_weight = (-1., 1., -0.4)
 filter_ind = False  # type: bool # Filter for valid population for the next generation
 # Specific conditions for multiple objectives, None means no rule.
 conditions = [None, '>0.', None]
@@ -110,7 +111,7 @@ def run_base_scenario(sceobj): # type:(SUScenario) -> tuple(float, list)
     return sed_sum, sed_per_period
 
 
-def main(sceobj, input_gene_single = None):
+def main(sceobj, input_gene_coll = None):
     # type: (SUScenario, list) -> Tuple[List, tools.Logbook]
     """Main workflow of NSGA-II based Scenario analysis."""
     if sceobj.cfg.eval_info["BASE_ENV"] < 0:
@@ -163,6 +164,19 @@ def main(sceobj, input_gene_single = None):
     logbook = tools.Logbook()
     logbook.header = 'gen', 'evals', 'min', 'max', 'avg', 'std'
 
+    def generate_random_integers(number, target_sum):
+        """Generate 'number' random integers that sum up to 'target_sum'."""
+
+        # Initialize the resulting list
+        result = [1] * number  # Ensure no zeros by starting with ones
+        target_sum -= number  # Adjust the target sum
+
+        # Distribute the remaining sum randomly
+        for _ in range(target_sum):
+            result[np.random.randint(number)] += 1  # Randomly pick an index to increment
+
+        return result
+
     # Initialize population
     initialize_byinputs = False
     if sceobj.cfg.initial_byinput and sceobj.cfg.input_pareto_file is not None and \
@@ -176,11 +190,16 @@ def main(sceobj, input_gene_single = None):
                 pareto_solutions = inpareto_solutions[sceobj.cfg.input_pareto_gen]
                 pop = toolbox.population_byinputs(sceobj.cfg, pareto_solutions)  # type: List
                 initialize_byinputs = True
+
+    # initialize with multiple genes
     if not initialize_byinputs:
-        if input_gene_single:
+        if input_gene_coll:
             input_gene_list = []
-            for i in range(pop_size):
-                input_gene_list.append(input_gene_single)
+            result = []
+            result = generate_random_integers(len(input_gene_coll),pop_size)
+            for count, element in zip(result, input_gene_coll):
+                for _ in range(count):
+                    input_gene_list.append(element)
             pop = toolbox.population_byinputs(sceobj.cfg, input_gene_list)
         else:
             pop = toolbox.population(sceobj.cfg, n=pop_size)  # type: List
@@ -188,6 +207,19 @@ def main(sceobj, input_gene_single = None):
 
 
     init_time = time.time() - stime
+
+    #def generate_random_integers(number, target_sum):
+    #    """Generate 'number' random integers that sum up to 'target_sum'."""
+
+    #    # Initialize the resulting list
+    #    result = [1] * number  # Ensure no zeros by starting with ones
+    #    target_sum -= number  # Adjust the target sum
+
+    #    # Distribute the remaining sum randomly
+    #    for _ in range(target_sum):
+    #        result[np.random.randint(number)] += 1  # Randomly pick an index to increment
+
+    #    return result
 
     def delete_fitness(new_ind):
         """Delete the fitness and other information of new individual."""
@@ -455,11 +487,23 @@ if __name__ == "__main__":
 
     scoop_log('### START TO SCENARIOS OPTIMIZING ###')
     startT = time.time()
-    input_gene_single = []
-    # input_gene_single = [0, 4, 0, 2, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 3, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0, 1, 2, 0, 3, 0, 0, 0, 1, 3, 1, 0, 2, 0, 1, 0]
-    input_gene_single = [0, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 2, 0, 2, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 2, 0, 3, 0, 0, 0, 3, 0, 1, 0, 2, 0, 0, 3, 0, 4, 0, 0, 1, 2, 0, 3, 0, 2, 0, 4, 2, 3, 0, 0, 0, 1, 2]
 
-    fpop, fstats = main(sce, input_gene_single)
+
+    # test multiple input genes as a collection
+    input_gene_coll = []
+    # input_gene_single = [0, 4, 0, 2, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 3, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0, 1, 2, 0, 3, 0, 0, 0, 1, 3, 1, 0, 2, 0, 1, 0]
+    #input_gene_coll.append([0, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 2, 0, 2, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 2, 0, 3, 0, 0, 0, 3, 0, 1, 0, 2, 0, 0, 3, 0, 4, 0, 0, 1, 2, 0, 3, 0, 2, 0, 4, 2, 3, 0, 0, 0, 1, 2])
+
+    input_gene_coll.append([0, 2, 0, 1, 0, 0, 0, 2, 2, 0, 0, 3, 0, 0, 4, 4, 0, 4, 0, 3, 0, 4, 4, 2, 1, 0, 2, 0, 0, 0, 0, 0, 4, 2, 0, 0, 0, 1, 4, 2, 3, 0, 0, 1, 0, 0, 2, 0, 0, 4, 4, 1, 1, 4, 1, 0, 0, 0, 3, 0, 3, 3, 4, 0, 0, 2, 0, 0, 1, 0, 0, 4])
+    input_gene_coll.append([0, 2, 0, 1, 0, 0, 0, 2, 2, 0, 0, 2, 0, 0, 2, 4, 0, 2, 0, 0, 0, 0, 4, 2, 1, 0, 2, 0, 0, 0, 0, 0, 4, 2, 0, 0, 0, 1, 4, 2, 3, 0, 0, 1, 0, 2, 0, 2, 0, 4, 1, 1, 3, 4, 1, 0, 0, 0, 3, 0, 3, 3, 4, 0, 0, 2, 0, 0, 1, 0, 0, 2])
+    input_gene_coll.append([0, 2, 0, 1, 0, 0, 0, 2, 2, 0, 0, 2, 0, 0, 2, 4, 0, 3, 0, 0, 3, 0, 4, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 2, 0, 3, 4, 0, 0, 0, 0, 0, 1, 0, 1, 3, 1, 0, 0, 3, 0, 0, 0, 0, 0, 0, 2, 0, 0, 4, 1, 0, 0, 2])
+    input_gene_coll.append([0, 3, 0, 4, 0, 3, 0, 3, 0, 0, 0, 2, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 4, 0, 2, 0, 0, 0, 0, 2, 0, 0, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 4])
+    input_gene_coll.append([0, 2, 0, 1, 0, 0, 0, 2, 2, 0, 0, 2, 0, 0, 2, 4, 0, 3, 0, 0, 3, 0, 4, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 2, 0, 3, 4, 0, 0, 2, 0, 0, 1, 0, 1, 3, 1, 0, 0, 3, 0, 2, 0, 0, 0, 0, 2, 0, 0, 4, 1, 0, 0, 2])
+    input_gene_coll.append([0, 3, 0, 0, 0, 1, 0, 3, 0, 0, 0, 0, 0, 0, 4, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1, 0, 2, 0, 0, 0, 2, 1, 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0])
+    input_gene_coll.append([0, 0, 0, 1, 0, 0, 0, 0, 4, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 4, 0, 2, 0, 0, 1, 0, 1, 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 3, 2, 0, 0, 0, 0, 3, 0, 3, 0, 4, 0, 1, 0, 0, 2])
+
+
+    fpop, fstats = main(sce, input_gene_coll)
     fpop.sort(key=lambda x: x.fitness.values)
     scoop_log(fstats)
     with open(sa_cfg.opt.logbookfile, 'w', encoding='utf-8') as f:
